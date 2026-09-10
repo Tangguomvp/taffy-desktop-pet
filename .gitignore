@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output (Electron packaging)
+dist/
+
+# Nested repos / tooling artifacts
+gitee-repo/
+.workbuddy/
+.superpowers/
+NVIDIA Corporation/
+_backup_loader_20260824/
+
+# Logs and backups
+*.log
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS
+Thumbs.db
+.DS_Store

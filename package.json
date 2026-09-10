@@ -1,0 +1,77 @@
+{
+  "name": "taffy-desk-pet",
+  "version": "1.0.3",
+  "private": true,
+  "description": "永雏塔菲桌宠 · 自用",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "preview:actions": "electron tools/capture_actions.js",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "allowScripts": {
+    "electron@35.7.5": true
+  },
+  "build": {
+    "appId": "com.taffy.deskpet",
+    "productName": "永雏塔菲桌宠",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "window-motion.cjs",
+      "button-watch.ps1",
+      "renderer/**",
+      "models/**",
+      "node_modules/three/examples/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "setToolWin.exe",
+        "to": "setToolWin.exe"
+      }
+    ],
+    "asarUnpack": [
+      "models/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "npmRebuild": false,
+    "electronLanguages": ["zh-CN"],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "永雏塔菲桌宠"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://gitee.com/你的用户名/仓库名/raw/master/updates/"
+      }
+    ]
+  }
+}

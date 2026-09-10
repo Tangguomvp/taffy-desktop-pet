@@ -1,0 +1,110 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #fff8ee;
+  color: #5a3224;
+  font-family: "ZCOOL XiaoWei", "LXGW WenKai", "Microsoft YaHei", serif;
+}
+
+body {
+  display: flex;
+}
+
+aside {
+  width: 240px;
+  flex: none;
+  padding: 18px 16px;
+  box-sizing: border-box;
+  border-right: 2px solid #c48a55;
+  overflow-y: auto;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.hint {
+  margin: 8px 0 14px;
+  color: #a86e3e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#list button {
+  appearance: none;
+  border: 1px solid #c48a55;
+  background: #fff;
+  color: #5a3224;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+#list button:hover,
+#list button.active {
+  background: #f3d3c0;
+}
+
+#list button.active {
+  font-weight: 700;
+}
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.bar button {
+  border: 0;
+  background: #c48a55;
+  color: #fff6ea;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.bar button:hover {
+  background: #a86e3e;
+}
+
+.bar button[hidden] {
+  display: none;
+}
+
+main {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  background: linear-gradient(180deg, #fff8ee, #f3d3c0);
+}
+
+#stage, #stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#label {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  margin: 0;
+  padding: 5px 12px;
+  background: #fff6eacc;
+  border: 1px solid #c48a55;
+  font-size: 13px;
+}

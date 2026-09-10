@@ -1,0 +1,170 @@
+html, body {
+  margin: 0;
+  min-height: 100%;
+  overflow-y: auto;
+  background: #fff8ee;
+  color: #5a3224;
+  font-family: "ZCOOL XiaoWei", "LXGW WenKai", "Microsoft YaHei", serif;
+}
+
+body {
+  padding: 22px 24px 18px;
+  box-sizing: border-box;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+header p {
+  margin: 6px 0 0;
+  color: #a86e3e;
+  font-size: 13px;
+}
+
+section {
+  margin-top: 22px;
+  padding: 14px 16px 16px;
+  background: #fff6ea;
+  border: 2px solid #c48a55;
+  box-shadow: 3px 3px 0 #5a322433;
+}
+
+section h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  font-size: 14px;
+}
+
+.sizes-row {
+  align-items: flex-start;
+  margin-top: 10px;
+}
+
+.hint {
+  margin: 6px 0 0;
+  color: #a86e3e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+#apiKey {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #c48a55;
+  background: #fff;
+  color: #5a3224;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+}
+
+#apiKey:focus {
+  border-color: #a86e3e;
+}
+
+#saveKey {
+  margin-top: 10px;
+  border: 0;
+  background: #c48a55;
+  color: #fff6ea;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+#saveKey:hover {
+  background: #a86e3e;
+}
+
+.sizes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.sizes button {
+  appearance: none;
+  border: 1px solid #c48a55;
+  background: #fff;
+  color: #5a3224;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.sizes button.active,
+.sizes button:hover {
+  background: #f3d3c0;
+}
+
+.sizes button.active {
+  font-weight: 700;
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #c48a55;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions button,
+#saveKey {
+  margin-top: 0;
+  border: 0;
+  background: #c48a55;
+  color: #fff6ea;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.actions button:hover,
+#saveKey:hover {
+  background: #a86e3e;
+}
+
+.actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.credit {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #5a3224;
+}
+
+footer {
+  margin-top: 18px;
+  color: #a86e3e;
+  font-size: 12px;
+}

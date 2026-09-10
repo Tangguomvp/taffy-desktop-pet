@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data: file:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
+  <title>塔菲动作预览</title>
+  <style>
+    html, body { margin: 0; background: #18131d; color: #f7edf2; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+    #grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 12px; }
+    .cell { position: relative; height: 480px; overflow: hidden; border-radius: 12px; background: #6a5a68; }
+    canvas { width: 100%; height: 100%; display: block; }
+    .label { position: absolute; left: 12px; bottom: 12px; padding: 5px 12px; border-radius: 999px; background: #1d1524cc; font-size: 15px; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js",
+      "three/addons/": "./vendor/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="grid"></div>
+  <script type="module">
+    import * as THREE from "three";
+    import { MMDLoader } from "three/addons/loaders/MMDLoader.js";
+    import {
+      sampleIdleMotion,
+      facingYawForDirection,
+      pickByAliasPriority,
+      sampleSpinMotion,
+      sampleStompMotion,
+      sampleTouchFaceMotion,
+      sampleWalkMotion,
+    } from "./motion.mjs";
+
+    const modelUrl = new URL("../models/taffy1883/taffy.pmx", import.meta.url).href;
+    const validationOutfits = [
+      ["1883", modelUrl],
+      ["nurse", new URL("../models/pmx/nurse/taffy.pmx", import.meta.url).href],
+      ["outing", new URL("../models/pmx/outing/taffy.pmx", import.meta.url).href],
+      ["maid", new URL("../models/pmx/maid/taffy.pmx", import.meta.url).href],
+      ["xmas", new URL("../models/pmx/xmas/taffy.pmx", import.meta.url).href],
+    ];
+    const loader = new MMDLoader();
+    const grid = document.getElementById("grid");
+
+    const ARM_IK = {
+      R: {
+        shoulder: new THREE.Vector3(-1.46, 9.608, -0.121),
+        upperDir: new THREE.Vector3(-1.5, -1.175, 0.08).normalize(),
+        foreDir: new THREE.Vector3(-1.368, -1.068, -0.012).normalize(),
+        upperLen: 1.907,
+        foreLen: 1.736,
+        elbowDir: new THREE.Vector3(-1, -1, 0.3),
+      },
+      L: {
+        shoulder: new THREE.Vector3(1.46, 9.608, -0.121),
+        upperDir: new THREE.Vector3(1.5, -1.175, 0.08).normalize(),
+        foreDir: new THREE.Vector3(1.368, -1.068, -0.026).normalize(),
+        upperLen: 1.907,
+        foreLen: 1.736,
+        elbowDir: new THREE.Vector3(1, -1, 0.3),
+      },
+    };
+
+    function solveArmIK(side, targetVec) {
+      const arm = ARM_IK[side];
+      const dvec = targetVec.clone().sub(arm.shoulder);
+      const d = Math.max(
+        Math.min(dvec.length(), arm.upperLen + arm.foreLen - 0.001),
+        Math.abs(arm.upperLen - arm.foreLen) + 0.001
+      );
+      const a = (arm.upperLen ** 2 - arm.foreLen ** 2 + d ** 2) / (2 * d);
+      const h = Math.sqrt(Math.max(0, arm.upperLen ** 2 - a ** 2));
+      const mid = arm.shoulder.clone().add(dvec.clone().normalize().multiplyScalar(a));
+      let perp = new THREE.Vector3().crossVectors(dvec, arm.elbowDir).normalize();
+      perp = new THREE.Vector3().crossVectors(perp, dvec).normalize();
+      if (perp.dot(arm.elbowDir) < 0) perp.multiplyScalar(-1);
+      const elbowPos = mid.clone().add(perp.multiplyScalar(h));
+      const upperQ = new THREE.Quaternion().setFromUnitVectors(
+        arm.upperDir,
+        elbowPos.clone().sub(arm.shoulder).normalize()
+      );
+      const foreTarget = targetVec.clone().sub(elbowPos).normalize().applyQuaternion(upperQ.clone().invert());
+      const elbowQ = new THREE.Quaternion().setFromUnitVectors(arm.foreDir, foreTarget);
+      return {
+        upper: new THREE.Euler().setFromQuaternion(upperQ, "XYZ"),
+        elbow: new THREE.Euler().setFromQuaternion(elbowQ, "XYZ"),
+      };
+    }
+
+    const getBone = (mesh, ...names) => pickByAliasPriority(mesh.skeleton.bones, names);
+
+    const requiredBoneGroups = [
+      ["頭", "头", "Head"],
+      ["上半身"],
+      ["センター", "センター2"],
+      ["右腕D"],
+      ["左腕D"],
+      ["右ひじD"],
+      ["左ひじD"],
+      ["右足D", "右足", "右腿", "RightLeg"],
+      ["左足D", "左足", "左腿", "LeftLeg"],
+      ["右ひざD", "右ひざ", "右膝", "RightKnee"],
+      ["左ひざD", "左ひざ", "左膝", "LeftKnee"],
+    ];
+
+    function snapshotPose(mesh) {
+      return {
+        position: mesh.position.clone(),
+        quaternion: mesh.quaternion.clone(),
+        bones: mesh.skeleton.bones.map((bone) => ({
+          bone,
+          position: bone.position.clone(),
+          quaternion: bone.quaternion.clone(),
+        })),
+      };
+    }
+
+    function restorePose(mesh, snapshot) {
+      mesh.position.copy(snapshot.position);
+      mesh.quaternion.copy(snapshot.quaternion);
+      for (const item of snapshot.bones) {
+        item.bone.position.copy(item.position);
+        item.bone.quaternion.copy(item.quaternion);
+      }
+      mesh.updateMatrixWorld(true);
+      mesh.skeleton.update();
+    }
+
+    function assertFinitePose(mesh, outfit, kind) {
+      const values = [
+        ...mesh.position.toArray(),
+        ...mesh.quaternion.toArray(),
+        ...mesh.skeleton.bones.flatMap((bone) => [
+          ...bone.position.toArray(),
+          ...bone.quaternion.toArray(),
+        ]),
+      ];
+      if (!values.every(Number.isFinite)) {
+        throw new Error(`${outfit}/${kind}: non-finite bone transform`);
+      }
+    }
+
+    function assertRestoredPose(mesh, snapshot, outfit) {
+      const epsilon = 1e-7;
+      if (
+        mesh.position.distanceTo(snapshot.position) > epsilon ||
+        1 - Math.abs(mesh.quaternion.dot(snapshot.quaternion)) > epsilon
+      ) {
+        throw new Error(`${outfit}: mesh did not return to rest`);
+      }
+      for (const item of snapshot.bones) {
+        if (
+          item.bone.position.distanceTo(item.position) > epsilon ||
+          1 - Math.abs(item.bone.quaternion.dot(item.quaternion)) > epsilon
+        ) {
+          throw new Error(`${outfit}: bone ${item.bone.name} did not return to rest`);
+        }
+      }
+    }
+
+    async function validateOutfit(name, url) {
+      const mesh = await new Promise((resolve, reject) => loader.load(url, resolve, undefined, reject));
+      const missing = requiredBoneGroups
+        .filter((names) => !getBone(mesh, ...names))
+        .map((names) => names.join("/"));
+      if (missing.length) throw new Error(`${name}: missing bones ${missing.join(", ")}`);
+      const rest = snapshotPose(mesh);
+      for (const kind of ["idle", "spin", "touch", "stomp", "walk"]) {
+        restorePose(mesh, rest);
+        const legBefore = getBone(mesh, "右足D", "右足", "右腿", "RightLeg").quaternion.clone();
+        applyPose(mesh, kind);
+        assertFinitePose(mesh, name, kind);
+        if ((kind === "stomp" || kind === "walk") && Math.abs(legBefore.dot(getBone(mesh, "右足D", "右足", "右腿", "RightLeg").quaternion)) > 1 - 1e-6) {
+          throw new Error(`${name}/${kind}: right leg did not move`);
+        }
+      }
+      restorePose(mesh, rest);
+      assertFinitePose(mesh, name, "restored");
+      assertRestoredPose(mesh, rest, name);
+    }
+
+    function applyPose(mesh, kind) {
+      const idle = sampleIdleMotion(1.25);
+      const spin = kind === "spin" ? sampleSpinMotion(0.4) : sampleSpinMotion(0);
+      const touch = kind === "touch" ? sampleTouchFaceMotion(0.5) : sampleTouchFaceMotion(1);
+      // Use the most readable silhouette for visual QA: raised foot for stomp,
+      // full opposing stride for walk. Runtime animation still plays every phase.
+      const stomp = kind === "stomp" ? sampleStompMotion(0.30) : sampleStompMotion(1);
+      const walk = kind === "walk" ? sampleWalkMotion(1 / 7.2, 1) : sampleWalkMotion(0, 0);
+      const head = getBone(mesh, "頭", "头", "Head");
+      const neck = getBone(mesh, "首");
+      const upper = getBone(mesh, "上半身");
+      const center = getBone(mesh, "センター", "センター2");
+      const armR = getBone(mesh, "右腕D");
+      const armL = getBone(mesh, "左腕D");
+      const elbowR = getBone(mesh, "右ひじD");
+      const elbowL = getBone(mesh, "左ひじD");
+      const shoulderR = getBone(mesh, "右肩D");
+      const shoulderL = getBone(mesh, "左肩D");
+      const legR = getBone(mesh, "右足D", "右足", "右腿", "RightLeg");
+      const legL = getBone(mesh, "左足D", "左足", "左腿", "LeftLeg");
+      const kneeR = getBone(mesh, "右ひざD", "右ひざ", "右膝", "RightKnee");
+      const kneeL = getBone(mesh, "左ひざD", "左ひざ", "左膝", "LeftKnee");
+      const ankleR = getBone(mesh, "右足首D", "右足首", "右脚踝", "RightAnkle");
+      const ankleL = getBone(mesh, "左足首D", "左足首", "左脚踝", "LeftAnkle");
+
+      const lower = getBone(mesh, "下半身");
+      if (upper) {
+        upper.rotation.z = idle.bodyZ + spin.bodyX + touch.bodyZ + walk.bodyZ + stomp.bodyZ;
+        upper.rotation.x = idle.breath + idle.bodyX + spin.bodyZ + walk.bodyX + stomp.bodyX + stomp.impact * 0.025;
+        upper.rotation.y = (walk.upperY || 0) + (stomp.upperY || 0);
+      }
+      if (lower) lower.rotation.y = (walk.lowerY || 0) + (stomp.lowerY || 0);
+      if (head) {
+        head.rotation.x = idle.headX + touch.headX + stomp.headX;
+        head.rotation.y = idle.headY;
+        head.rotation.z = idle.headZ + spin.bodyX * 0.45 + touch.headZ + stomp.headZ;
+      }
+      if (neck) neck.rotation.x = idle.breath * 0.6 + touch.headX * 0.3;
+      if (center) {
+        center.position.x = walk.centerX + stomp.centerX;
+        center.position.y = idle.centerY + spin.centerY + walk.centerY + stomp.centerY - stomp.impact * 0.045;
+      }
+
+      if (kind === "touch" && armR && elbowR) {
+        const target = new THREE.Vector3(
+          -0.5 + touch.targetXOffset,
+          10.8 + touch.targetYOffset,
+          1.72
+        );
+        const solved = solveArmIK("R", target);
+        armR.rotation.copy(solved.upper);
+        elbowR.rotation.copy(solved.elbow);
+      } else {
+        if (armR) {
+          armR.rotation.x = idle.armR + walk.armR + stomp.armR;
+          armR.rotation.z = -spin.armOpen * 0.94;
+        }
+        if (armL) {
+          armL.rotation.x = idle.armL + walk.armL + stomp.armL;
+          armL.rotation.z = spin.armOpen * 0.94;
+        }
+        if (elbowR) elbowR.rotation.x = -spin.armOpen * 0.25;
+        if (elbowL) elbowL.rotation.x = -spin.armOpen * 0.25;
+      }
+      if (shoulderR) shoulderR.rotation.z = -spin.armOpen * 0.1;
+      if (shoulderL) shoulderL.rotation.z = spin.armOpen * 0.1;
+      if (legR) {
+        legR.rotation.x = walk.legR + stomp.legR + (spin.legR || 0);
+        legR.rotation.z = walk.legRZ + stomp.legRZ + (spin.legRZ || 0);
+        legR.position.x += walk.legRX + stomp.legRX;
+        legR.position.y += walk.legRY + stomp.legRY;
+      }
+      if (legL) {
+        legL.rotation.x = walk.legL + stomp.legL + (spin.legL || 0);
+        legL.rotation.z = walk.legLZ + stomp.legLZ;
+        legL.position.x += walk.legLX + stomp.legLX;
+        legL.position.y += walk.legLY + stomp.legLY;
+      }
+      if (kneeR) kneeR.rotation.x = walk.kneeR + stomp.kneeR + (spin.kneeR || 0);
+      if (kneeL) kneeL.rotation.x = walk.kneeL + stomp.kneeL + (spin.kneeL || 0);
+      if (ankleR) ankleR.rotation.x = walk.footR + stomp.footR + (spin.footR || 0);
+      if (ankleL) ankleL.rotation.x = walk.footL + stomp.footL + (spin.footL || 0);
+      if (kind === "spin") mesh.rotation.y = spin.turns * Math.PI * 2;
+      else if (kind === "walk") mesh.rotation.y = facingYawForDirection(-1, 1);
+      mesh.updateMatrixWorld(true);
+      mesh.skeleton.update();
+    }
+
+    function makeCell(label) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      const canvas = document.createElement("canvas");
+      const tag = document.createElement("div");
+      tag.className = "label";
+      tag.textContent = label;
+      cell.append(canvas, tag);
+      grid.appendChild(cell);
+      return canvas;
+    }
+
+    async function renderPose(label, kind) {
+      const canvas = makeCell(label);
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(400, 620, false);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.setClearColor(0x6a5a68, 1);
+      const scene = new THREE.Scene();
+      scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      const key = new THREE.DirectionalLight(0xffe9ef, 1.6);
+      key.position.set(-6, 18, 14);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0xbad8ff, 0.65);
+      rim.position.set(8, 10, -8);
+      scene.add(rim);
+
+      const mesh = await new Promise((resolve, reject) => loader.load(modelUrl, resolve, undefined, reject));
+      mesh.traverse((object) => {
+        if (object.isMesh) {
+          object.frustumCulled = false;
+          object.material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+        }
+      });
+      scene.add(mesh);
+      applyPose(mesh, kind);
+
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const camera = new THREE.PerspectiveCamera(28, 400 / 620, 0.1, 1000);
+      const distance = Math.max((size.y * 0.88) / Math.tan((camera.fov * Math.PI) / 360), 12);
+      camera.position.set(center.x, center.y + size.y * 0.06, distance);
+      camera.lookAt(center.x, center.y + size.y * 0.04, 0);
+      renderer.render(scene, camera);
+    }
+
+    const poses = [
+      ["自然待机", "idle"],
+      ["张臂转圈软着陆", "spin"],
+      ["害羞摸脸", "touch"],
+      ["跺脚", "stomp"],
+      ["走动", "walk"],
+    ];
+    try {
+      for (const [label, kind] of poses) await renderPose(label, kind);
+      for (const [name, url] of validationOutfits) await validateOutfit(name, url);
+      window.actionValidation = { outfits: validationOutfits.length, poses: poses.length };
+      window.__ACTION_PREVIEW_RESULT__ = window.actionValidation;
+      console.info(`validated ${validationOutfits.length} outfits x ${poses.length} poses`);
+      document.title = "preview-actions-ready";
+    } catch (error) {
+      window.actionValidationError = error?.stack || error?.message || String(error);
+      console.error(window.actionValidationError);
+      document.title = "preview-actions-error";
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data: file:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
+  <title>预览 · 永雏塔菲桌宠</title>
+  <link rel="stylesheet" href="./studio.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js",
+      "three/addons/": "./vendor/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <aside>
+    <h1 id="title">预览</h1>
+    <p id="hint" class="hint">点左边看效果，再决定要不要用到桌宠上。</p>
+    <div id="list"></div>
+    <div class="bar">
+      <button id="apply" type="button">用到桌宠上</button>
+      <button id="importOutfit" type="button" hidden>导入官方 PMX…</button>
+    </div>
+    <p id="status" class="hint"></p>
+  </aside>
+  <main>
+    <div id="stage"></div>
+    <p id="label"></p>
+  </main>
+  <script type="module" src="./studio.js"></script>
+</body>
+</html>

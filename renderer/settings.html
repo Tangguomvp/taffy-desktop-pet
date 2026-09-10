@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>设置 · 永雏塔菲桌宠</title>
+  <link rel="stylesheet" href="./settings.css" />
+</head>
+<body>
+  <header>
+    <h1>设置</h1>
+    <p>改完会立刻生效喵</p>
+  </header>
+
+  <section>
+    <h2>桌宠</h2>
+    <label class="row">
+      <span>始终置顶</span>
+      <input id="alwaysOnTop" type="checkbox" />
+    </label>
+    <label class="row">
+      <span>待机散步</span>
+      <input id="walkMode" type="checkbox" />
+    </label>
+    <p class="hint">打开后闲着 15～30 秒才会自己走走，打开当下不会立刻走。</p>
+    <div class="row sizes-row">
+      <span>大小</span>
+      <div id="sizes" class="sizes"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>对话</h2>
+    <label class="field" for="apiKey">DeepSeek API Key</label>
+    <input id="apiKey" type="password" maxlength="200" autocomplete="off" placeholder="sk-..." />
+    <p id="keyHint" class="hint"></p>
+    <button id="saveKey" type="button">保存 Key</button>
+  </section>
+
+  <section>
+    <h2>互动</h2>
+    <div class="actions">
+      <button id="actions" type="button">动作展示</button>
+      <button id="outfits" type="button">换装</button>
+    </div>
+    <p class="hint">会弹出预览窗口，看过再决定用不用到桌宠上。</p>
+  </section>
+
+  <section>
+    <h2>更新</h2>
+    <p id="updateHint" class="hint">有新版本时可以在这里检查、安装。</p>
+    <div class="actions">
+      <button id="checkUpdate" type="button">检查更新</button>
+      <button id="installUpdate" type="button">安装更新</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>借物</h2>
+    <p class="credit">模型所属 永雏塔菲<br />建模 Francesca<br />绑定/表情 客官IIIII<br />仅供个人自用喵</p>
+  </section>
+
+  <footer>
+    <span id="version"></span>
+  </footer>
+  <script src="./settings.js"></script>
+</body>
+</html>

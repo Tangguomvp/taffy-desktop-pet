@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data: file:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
+  <title>永雏塔菲桌宠</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js",
+      "three/addons/": "./vendor/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="loader" role="status" aria-live="polite">
+    <div class="loader-card">
+      <div class="clover" aria-hidden="true">♣<span class="spark sp1">✦</span><span class="spark sp2">✦</span><span class="spark sp3">✧</span></div>
+      <p class="loader-text">小菲正在钻出来喵<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></p>
+      <div class="loader-progress indeterminate" aria-hidden="true"><div class="loader-progress-fill"></div></div>
+      <p class="loader-status"></p>
+    </div>
+  </div>
+  <div id="bubble" hidden></div>
+  <div id="chatbar" hidden>
+    <input id="chatInput" type="text" placeholder="和塔菲说点什么喵…" maxlength="300" autocomplete="off" />
+    <button id="chatSend">发送</button>
+    <button id="chatClose" title="关闭输入框">×</button>
+  </div>
+  <div id="menu" hidden>
+    <button data-act="chat">跟小菲说话</button>
+    <button data-act="smaller">变小一点</button>
+    <button data-act="bigger">变大一点</button>
+    <button data-act="quit" class="danger">先走了喵</button>
+  </div>
+  <div id="actionMenu" hidden>
+    <button data-motion="idle">自然待机</button>
+    <button data-motion="spin">张臂转圈软着陆</button>
+    <button data-motion="touch">害羞摸脸</button>
+    <button data-motion="stomp">跺脚</button>
+    <button data-motion="walk">开始 / 停止走动</button>
+  </div>
+  <div id="outfitMenu" hidden></div>
+  <script type="module" src="./pet.js"></script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>taffy-render</title>
+  <style>html,body{margin:0;padding:0;background:#18131d;overflow:hidden}</style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="cv" width="480" height="768"></canvas>
+  <div id="label" style="position:absolute;left:18px;bottom:18px;padding:8px 18px;border-radius:999px;background:rgba(20,14,24,.82);color:#f7edf2;font:600 22px 'Segoe UI','Microsoft YaHei',sans-serif;letter-spacing:.06em"></div>
+  <script type="module">
+    import * as THREE from "three";
+    import { MMDLoader } from "../renderer/vendor/jsm/loaders/MMDLoader.js";
+    import {
+      sampleIdleMotion,
+      sampleSpinMotion,
+      sampleStompMotion,
+      sampleTouchFaceMotion,
+      sampleWalkMotion,
+      pickByAliasPriority,
+      setLegRig,
+    } from "../renderer/motion.mjs";
+
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    const canvas = document.getElementById("cv");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(480, 768, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor(0x18131d, 1);
+
+    const scene = new THREE.Scene();
+    scene.add(new THREE.AmbientLight(0xffffff, 1.05));
+    const key = new THREE.DirectionalLight(0xfff2f5, 1.7);
+    key.position.set(-6, 18, 14);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+    fill.position.set(0, 8, -10);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xbad8ff, 0.7);
+    rim.position.set(8, 10, -8);
+    scene.add(rim);
+
+    const GESTURE_TARGETS = { touchFace: { x: -0.5, y: 10.8, z: 1.72 } };
+    const ARM_IK = {
+      R: {
+        shoulder: new THREE.Vector3(-1.46, 9.608, -0.121),
+        upperDir: new THREE.Vector3(-1.5, -1.175, 0.08).normalize(),
+        foreDir: new THREE.Vector3(-1.368, -1.068, -0.012).normalize(),
+        upperLen: 1.907, foreLen: 1.736,
+        elbowDir: new THREE.Vector3(-1, -1, 0.3),
+      },
+      L: {
+        shoulder: new THREE.Vector3(1.46, 9.608, -0.121),
+        upperDir: new THREE.Vector3(1.5, -1.175, 0.08).normalize(),
+        foreDir: new THREE.Vector3(1.368, -1.068, -0.026).normalize(),
+        upperLen: 1.907, foreLen: 1.736,
+        elbowDir: new THREE.Vector3(1, -1, 0.3),
+      },
+    };
+    function solveArmIK(side, targetVec) {
+      const arm = ARM_IK[side];
+      const dvec = targetVec.clone().sub(arm.shoulder);
+      let d = dvec.length();
+      d = Math.max(Math.min(d, arm.upperLen + arm.foreLen - 0.001), Math.abs(arm.upperLen - arm.foreLen) + 0.001);
+      const a = (arm.upperLen * arm.upperLen - arm.foreLen * arm.foreLen + d * d) / (2 * d);
+      const h = Math.sqrt(Math.max(0, arm.upperLen * arm.upperLen - a * a));
+      const mid = arm.shoulder.clone().add(dvec.clone().normalize().multiplyScalar(a));
+      let perp = new THREE.Vector3().crossVectors(dvec, arm.elbowDir).normalize();
+      perp = new THREE.Vector3().crossVectors(perp, dvec).normalize();
+      if (perp.dot(arm.elbowDir) < 0) perp.multiplyScalar(-1);
+      const elbowPos = mid.clone().add(perp.multiplyScalar(h));
+      const qu = new THREE.Quaternion().setFromUnitVectors(arm.upperDir, elbowPos.clone().sub(arm.shoulder).normalize());
+      const upperEuler = new THREE.Euler().setFromQuaternion(qu, "XYZ");
+      const foreTargetLocal = targetVec.clone().sub(elbowPos).normalize().applyQuaternion(qu.clone().invert());
+      const qe = new THREE.Quaternion().setFromUnitVectors(arm.foreDir, foreTargetLocal);
+      const elbowEuler = new THREE.Euler().setFromQuaternion(qe, "XYZ");
+      return { upperEuler, elbowEuler };
+    }
+
+    let mesh = null;
+    let camera = null;
+    const bone = (n) => (mesh ? mesh.skeleton.bones.find((b) => b.name === n) || null : null);
+    const boneAny = (...names) => (mesh ? pickByAliasPriority(mesh.skeleton.bones, names) : null);
+    const legRest = new WeakMap();
+    function setLegOffset(target, x = 0, y = 0) {
+      if (!target) return;
+      if (!legRest.has(target)) legRest.set(target, target.position.clone());
+      const r = legRest.get(target);
+      target.position.set(r.x + x, r.y + y, r.z);
+    }
+
+    function fitCamera() {
+      mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      camera = new THREE.PerspectiveCamera(28, 480 / 768, 0.1, 1000);
+      const distance = Math.max((size.y * 0.92) / Math.tan((camera.fov * Math.PI) / 360), 12) * 1.12;
+      camera.position.set(center.x, center.y + size.y * 0.02, distance);
+      camera.lookAt(center.x, center.y + size.y * 0.02, 0);
+    }
+
+    function applyFrame(kind, tMs) {
+      if (!mesh) return;
+      const tSec = tMs / 1000;
+      const idle = sampleIdleMotion(tSec);
+      const spin = kind === "spin" ? sampleSpinMotion(clamp01(tMs / 1440)) : sampleSpinMotion(0);
+      const stomp = kind === "stomp" ? sampleStompMotion(clamp01(tMs / 1000)) : sampleStompMotion(1);
+      const touch = kind === "touch" ? sampleTouchFaceMotion(clamp01(tMs / 3600)) : sampleTouchFaceMotion(1);
+      const walk = kind === "walk" ? sampleWalkMotion(tSec, 1) : sampleWalkMotion(0, 0);
+
+      const head = boneAny("頭", "头", "Head");
+      const neck = boneAny("首");
+      const upper = boneAny("上半身");
+      const lower = boneAny("下半身");
+      const center = boneAny("センター", "センター2");
+      const armR = boneAny("右腕D");
+      const armL = boneAny("左腕D");
+      const elbowR = boneAny("右ひじD");
+      const elbowL = boneAny("左ひじD");
+      const shoulderR = boneAny("右肩D");
+      const shoulderL = boneAny("左肩D");
+      const legR = boneAny("右足D", "右足", "右腿", "RightLeg");
+      const legL = boneAny("左足D", "左足", "左腿", "LeftLeg");
+      const kneeR = boneAny("右ひざD", "右ひざ", "右膝", "RightKnee");
+      const kneeL = boneAny("左ひざD", "左ひざ", "左膝", "LeftKnee");
+      const ankleR = boneAny("右足首D", "右足首", "右脚踝", "RightAnkle");
+      const ankleL = boneAny("左足首D", "左足首", "左脚踝", "LeftAnkle");
+
+      if (upper) {
+        upper.rotation.z = idle.bodyZ + spin.bodyX + touch.bodyZ + walk.bodyZ + stomp.bodyZ;
+        upper.rotation.x = idle.breath + idle.bodyX + spin.bodyZ + walk.bodyX + stomp.bodyX + (touch.bodyX || 0) + stomp.impact * 0.025;
+        upper.rotation.y = (walk.upperY || 0) + (stomp.upperY || 0);
+      }
+      if (lower) lower.rotation.y = (walk.lowerY || 0) + (stomp.lowerY || 0);
+      if (head) {
+        head.rotation.y = idle.headY + (touch.headY || 0) + (walk.headY || 0);
+        head.rotation.z = idle.headZ + spin.bodyX * 0.45 + touch.headZ + stomp.headZ;
+        head.rotation.x = idle.headX + touch.headX + stomp.headX + (walk.headX || 0);
+      }
+      if (neck) neck.rotation.x = idle.breath * 0.6 + touch.headX * 0.3;
+
+      const raiseR = spin.armOpen * 0.82;
+      const raiseL = spin.armOpen * 0.82;
+      const swingDamp = 1 - Math.min(1, ((raiseR + raiseL) / 2) * 1.5);
+      // 站立时手臂自然下垂（MMD A-pose 张得太开）；转圈张臂时让位给 armOpen
+      const armDrop = 0.62 * (1 - spin.armOpen);
+      const baseArmR = { x: idle.armR * swingDamp + idle.breath * 0.6 + walk.armR + stomp.armR, y: 0, z: -raiseR * 1.15 + armDrop };
+      const baseArmL = { x: idle.armL * swingDamp + idle.breath * 0.6 + walk.armL + stomp.armL, y: 0, z: raiseL * 1.15 - armDrop };
+      const baseElbowR = { x: -spin.armOpen * 0.25 - (walk.elbowR || 0), y: 0, z: 0 };
+      const baseElbowL = { x: -spin.armOpen * 0.25 - (walk.elbowL || 0), y: 0, z: 0 };
+      const blendPose = (base, target, w) => {
+        if (!target || w <= 0) return base;
+        return { x: base.x * (1 - w) + target.x * w, y: base.y * (1 - w) + target.y * w, z: base.z * (1 - w) + target.z * w };
+      };
+
+      const activeArmR = baseArmR;
+      const activeArmL = baseArmL;
+      const activeElbowR = baseElbowR;
+      const activeElbowL = baseElbowL;
+
+      let gArmR = null, gElbowR = null;
+      const gEnv = kind === "touch" ? touch.weight : 0;
+      if (kind === "touch" && gEnv > 0) {
+        const t = GESTURE_TARGETS.touchFace;
+        const targetVec = new THREE.Vector3(t.x + touch.targetXOffset, t.y + touch.targetYOffset, t.z);
+        const s = solveArmIK("R", targetVec);
+        gArmR = { x: s.upperEuler.x, y: s.upperEuler.y, z: s.upperEuler.z };
+        gElbowR = { x: s.elbowEuler.x, y: s.elbowEuler.y, z: s.elbowEuler.z };
+      }
+      const mix = (base, g) => blendPose(base, g, gEnv);
+
+      if (armR) { const r = mix(activeArmR, gArmR); armR.rotation.x = r.x; armR.rotation.y = r.y; armR.rotation.z = r.z; }
+      if (armL) { const r = mix(activeArmL, null); armL.rotation.x = r.x; armL.rotation.y = r.y; armL.rotation.z = r.z; }
+      if (elbowR) { const r = mix(activeElbowR, gElbowR); elbowR.rotation.x = r.x; elbowR.rotation.y = r.y; elbowR.rotation.z = r.z; }
+      if (elbowL) { const r = mix(activeElbowL, null); elbowL.rotation.x = r.x; elbowL.rotation.y = r.y; elbowL.rotation.z = r.z; }
+      if (shoulderR) shoulderR.rotation.z = -spin.armOpen * 0.1;
+      if (shoulderL) shoulderL.rotation.z = spin.armOpen * 0.1;
+      if (legR) {
+        legR.rotation.x = walk.legR + stomp.legR + (spin.legR || 0);
+        legR.rotation.z = walk.legRZ + stomp.legRZ + (spin.legRZ || 0);
+        setLegOffset(legR, walk.legRX + stomp.legRX, walk.legRY + stomp.legRY);
+      }
+      if (legL) {
+        legL.rotation.x = walk.legL + stomp.legL + (spin.legL || 0);
+        legL.rotation.z = walk.legLZ + stomp.legLZ;
+        setLegOffset(legL, walk.legLX + stomp.legLX, walk.legLY + stomp.legLY);
+      }
+      if (kneeR) kneeR.rotation.x = walk.kneeR + stomp.kneeR + (spin.kneeR || 0);
+      if (kneeL) kneeL.rotation.x = walk.kneeL + stomp.kneeL + (spin.kneeL || 0);
+      if (ankleR) ankleR.rotation.x = walk.footR + stomp.footR + (spin.footR || 0);
+      if (ankleL) ankleL.rotation.x = walk.footL + stomp.footL + (spin.footL || 0);
+
+      if (center) {
+        center.position.y = idle.centerY + spin.centerY + walk.centerY + stomp.centerY;
+        center.position.x = walk.centerX + stomp.centerX;
+      }
+      if (kind === "spin") mesh.rotation.y = spin.turns * Math.PI * 2;
+      else if (kind === "walk") mesh.rotation.y = -0.38;
+      else mesh.rotation.y = 0;
+
+      mesh.skeleton.bones.forEach((b) => b.updateMatrixWorld());
+      mesh.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+    }
+
+    window.__render = (kind, tMs) => { applyFrame(kind, tMs); return true; };
+    const LABELS = { idle: "自然待机", spin: "张臂转圈", touch: "害羞摸脸", stomp: "跺脚", walk: "走动" };
+    window.__label = (kind) => { document.getElementById("label").textContent = LABELS[kind] || ""; return true; };
+    // 同步循环渲染全部动作，用 toDataURL 取帧，避免逐帧截图的同步/时序问题
+    window.__renderAll = async (list) => {
+      const out = [];
+      for (const [kind, dur] of list) {
+        document.getElementById("label").textContent = LABELS[kind] || "";
+        const frames = Math.max(1, Math.round((dur / 1000) * 30));
+        for (let f = 0; f < frames; f++) {
+          applyFrame(kind, (f / 30) * 1000);
+          out.push(canvas.toDataURL("image/jpeg", 0.86));
+          if (out.length % 10 === 0) {
+            console.log("render progress", out.length, "frames");
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        }
+      }
+      console.log("render all done", out.length);
+      return out;
+    };
+    window.__snap = () => canvas.toDataURL("image/jpeg", 0.6);
+
+    const loader = new MMDLoader();
+    loader.load(
+      new URL("../models/taffy1883/taffy.pmx", import.meta.url).href,
+      (object) => {
+        mesh = object;
+        scene.add(mesh);
+        const legB = boneAny("右足D", "右足", "右腿", "RightLeg");
+        const kneeB = boneAny("右ひざD", "右ひざ", "右膝", "RightKnee");
+        const ankleB = boneAny("右足首D", "右足首", "右脚踝", "RightAnkle");
+        if (legB && kneeB && ankleB) setLegRig(kneeB.position.length(), ankleB.position.length());
+        fitCamera();
+        document.title = "render-ready";
+      },
+      undefined,
+      (err) => { document.title = "render-error:" + (err?.message || err); }
+    );
+  </script>
+</body>
+</html>
