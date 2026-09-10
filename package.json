@@ -1,6 +1,6 @@
 {
   "name": "taffy-desk-pet",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "永雏塔菲桌宠 · 自用",
   "main": "main.js",
@@ -58,7 +58,9 @@
       "icon": "icon.png"
     },
     "npmRebuild": false,
-    "electronLanguages": ["zh-CN"],
+    "electronLanguages": [
+      "zh-CN"
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,
