@@ -71,8 +71,9 @@
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://gitee.com/你的用户名/仓库名/raw/master/updates/"
+        "provider": "github",
+        "owner": "Tangguomvp",
+        "repo": "taffy-desktop-pet"
       }
     ]
   }

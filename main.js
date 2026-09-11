@@ -7,10 +7,11 @@ const { autoUpdater } = require("electron-updater");
 const { advanceWithinWorkArea } = require("./window-motion.cjs");
 
 // ---------- 自动更新配置 ----------
-// 更新源目录（放 latest.yml + 安装包）。留空则关闭自动更新。
-// 环境变量 TAFFY_UPDATE_URL 优先；也可直接改下面的常量。
-const UPDATE_FEED_URL = process.env.TAFFY_UPDATE_URL || "https://gitee.com/tangguotang/eternal-nest-taffy-pet-table/raw/master/updates/";
-const useAutoUpdate = !!UPDATE_FEED_URL && app.isPackaged;
+// 默认从 GitHub Releases 拉取更新（latest.yml + 安装包）。
+// 设置环境变量 TAFFY_UPDATE_URL 可改用自定义 generic 源；TAFFY_UPDATE=0 关闭自动更新。
+const GITHUB_UPDATE = { owner: "Tangguomvp", repo: "taffy-desktop-pet" };
+const UPDATE_FEED_URL = process.env.TAFFY_UPDATE_URL || "";
+const useAutoUpdate = app.isPackaged && process.env.TAFFY_UPDATE !== "0";
 let updateDownloaded = false;
 let updateAvailableVersion = "";
 
@@ -20,7 +21,11 @@ function sendToRenderer(channel, data) {
 }
 
 if (useAutoUpdate) {
-  autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL, useMultipleRangeRequest: true });
+  if (UPDATE_FEED_URL) {
+    autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL, useMultipleRangeRequest: true });
+  } else {
+    autoUpdater.setFeedURL({ provider: "github", ...GITHUB_UPDATE });
+  }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
