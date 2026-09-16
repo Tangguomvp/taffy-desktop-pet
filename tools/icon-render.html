@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>icon-render</title>
+<style>html,body{margin:0;padding:0;background:transparent;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">
+{ "imports": { "three": "../node_modules/three/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="cv" width="512" height="512"></canvas>
+<script type="module">
+  import * as THREE from "three";
+  import { MMDLoader } from "../renderer/vendor/jsm/loaders/MMDLoader.js";
+
+  const canvas = document.getElementById("cv");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setClearColor(0x000000, 0);
+  renderer.setSize(512, 512, false);
+
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff, 1.05));
+  const key = new THREE.DirectionalLight(0xfff2f5, 1.7); key.position.set(-6, 18, 14); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.5); fill.position.set(0, 8, -10); scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xbad8ff, 0.7); rim.position.set(8, 10, -8); scene.add(rim);
+
+  let mesh = null;
+  const boneAny = (names) => (mesh ? mesh.skeleton.bones.find((b) => names.includes(b.name)) || null : null);
+
+  function setMorphs(dict) {
+    if (!mesh || !mesh.morphTargetInfluences || !mesh.morphTargetDictionary) return [];
+    mesh.morphTargetInfluences.fill(0);
+    const missing = [];
+    for (const [n, v] of Object.entries(dict || {})) {
+      const i = mesh.morphTargetDictionary[n];
+      if (i === undefined) { missing.push(n); continue; }
+      mesh.morphTargetInfluences[i] = v;
+    }
+    mesh.updateMatrixWorld(true);
+    return missing;
+  }
+
+  function frame(mode) {
+    mesh.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(mesh);
+    const head = boneAny(["頭", "头", "Head"]);
+    const wp = new THREE.Vector3();
+    head.getWorldPosition(wp);
+    const top = box.max.y;
+    const span = Math.max(top - wp.y, 0.001);
+    const k = mode === "face" ? 0.95 : mode === "bust" ? 1.45 : mode === "full" ? 4.6 : 1.45;
+    const frameH = span * k;
+    const center = new THREE.Vector3(wp.x, wp.y + span * (mode === "face" ? 0.5 : 0.45), wp.z);
+    const fov = 22;
+    const dist = (frameH / 2) / Math.tan((fov * Math.PI) / 360);
+    return { center, dist, fov, top, headY: wp.y, span, headX: wp.x, headZ: wp.z, boxMin: box.min.toArray(), boxMax: box.max.toArray() };
+  }
+
+  window.__info = () => {
+    const f = frame("bust");
+    return { morphCount: Object.keys(mesh.morphTargetDictionary || {}).length, frame: f };
+  };
+  window.__morphNames = () => Object.keys(mesh.morphTargetDictionary || {});
+
+  window.__shot = (opts) => {
+    const size = opts.size || 512;
+    if (canvas.width !== size || canvas.height !== size) {
+      canvas.width = size; canvas.height = size;
+      renderer.setSize(size, size, false);
+    }
+    const missing = setMorphs(opts.morphs);
+    const cam = new THREE.PerspectiveCamera(opts.fov || 22, 1, 0.1, 6000);
+    if (opts.eye) {
+      cam.position.fromArray(opts.eye);
+      cam.lookAt(new THREE.Vector3().fromArray(opts.target));
+    } else {
+      const f = frame(opts.mode || "bust");
+      const yOff = (opts.yOff || 0) * f.span;
+      cam.position.set(f.center.x, f.center.y + yOff, f.center.z + f.dist * (opts.zoom || 1));
+      cam.lookAt(f.center.x, f.center.y + yOff, f.center.z);
+    }
+    renderer.render(scene, cam);
+    return { data: canvas.toDataURL("image/png"), missing, frame: null };
+  };
+
+  const loader = new MMDLoader();
+  loader.load(
+    new URL("../models/taffy1883/taffy.pmx", import.meta.url).href,
+    (obj) => { mesh = obj; scene.add(mesh); mesh.updateMatrixWorld(true); document.title = "render-ready"; },
+    undefined,
+    (err) => { document.title = "render-error:" + (err && err.message ? err.message : String(err)); }
+  );
+</script>
+</body>
+</html>
