@@ -48,10 +48,10 @@
 
 | 版本 | 说明 | 下载 |
 | --- | --- | --- |
-| v1.0.5 | 待发布（GitHub 草稿）：动作系统重构，菜单 9 个动作 | [Taffy-Desktop-Pet-Setup-1.0.5.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.5/Taffy-Desktop-Pet-Setup-1.0.5.exe) |
-| v1.0.4 | 上一版（2026-11-02 重新打包，含 9 个动作） | [Taffy-Desktop-Pet-Setup-1.0.4.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.4/Taffy-Desktop-Pet-Setup-1.0.4.exe) |
+| v1.0.5 | 最新版：动作系统重构，菜单 9 个动作 | [Taffy-Desktop-Pet-Setup-1.0.5.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.5/Taffy-Desktop-Pet-Setup-1.0.5.exe) |
+| v1.0.4 | 上一版（2026-11-02 重新打包） | [Taffy-Desktop-Pet-Setup-1.0.4.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.4/Taffy-Desktop-Pet-Setup-1.0.4.exe) |
 
-> v1.0.5 先以草稿 Release 形式上传安装包（GitHub 草稿不参与自动更新检查）：1.0.4 的客户端暂时不会收到更新提示。确认放行后发布草稿，客户端下次启动即可检测到 v1.0.5。
+> 已安装 1.0.4 / 更早版本的用户：启动后会自动检测到 v1.0.5 并后台下载，退出时自动安装。
 
 ## 使用
 
