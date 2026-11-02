@@ -272,6 +272,15 @@ function releaseNotes(version, opts) {
   return lines.join("\n");
 }
 
+// GitHub 的 /releases/tags/<tag> 查不到草稿（草稿在发布前还没挂到 tag 上），
+// 所以要列出来自己找，才支持"放行草稿"。
+async function findGithubRelease(tag) {
+  const releases = await ghApi("/repos/" + GH.owner + "/" + GH.repo + "/releases?per_page=50");
+  const found = (releases || []).find((release) => release.tag_name === tag);
+  if (!found) die("找不到 tag 为 " + tag + " 的 Release");
+  return found;
+}
+
 async function createGithubRelease(version, notes, draft) {
   step("创建 GitHub Release" + (draft ? "（草稿）" : ""));
   const release = await ghApi("/repos/" + GH.owner + "/" + GH.repo + "/releases", {
@@ -329,18 +338,25 @@ async function publishExistingDraft(tagArg, opts) {
   const tag = String(tagArg).startsWith("v") ? tagArg : "v" + tagArg;
   const version = tag.replace(/^v/, "");
   step("放行 " + tag);
-  const release = await ghApi("/repos/" + GH.owner + "/" + GH.repo + "/releases/tags/" + tag);
+  let release = await findGithubRelease(tag);
   if (release.draft) {
     await ghApi("/repos/" + GH.owner + "/" + GH.repo + "/releases/" + release.id, {
       method: "PATCH",
       body: JSON.stringify({ draft: false }),
     });
     log("   GitHub 草稿已发布");
+    // 发布后资源的下载地址会从 untagged-… 变成 /download/<tag>/…，必须重新取一遍
+    release = await findGithubRelease(tag);
   } else log("   GitHub 该版本已是公开状态");
 
   const ymlAsset = (release.assets || []).find((asset) => asset.name === "latest.yml");
   if (!ymlAsset) die("该 Release 里没有 latest.yml，无法确定 sha512/size");
-  const yml = await (await fetch(ymlAsset.browser_download_url, { headers: { "User-Agent": "taffy-release" } })).text();
+  const token = gitCred("github.com");
+  const ymlRes = await fetch(ymlAsset.url, {
+    headers: { Authorization: "token " + token, Accept: "application/octet-stream", "User-Agent": "taffy-release" },
+  });
+  if (!ymlRes.ok) die("下载 latest.yml 失败：" + ymlRes.status);
+  const yml = await ymlRes.text();
   const sha512 = (yml.match(/sha512:\s*(\S+)/) || [])[1];
   const size = Number((yml.match(/size:\s*(\d+)/) || [])[1]);
   if (!sha512 || !size) die("latest.yml 里解析不到 sha512/size");
