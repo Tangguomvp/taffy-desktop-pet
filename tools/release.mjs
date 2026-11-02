@@ -128,6 +128,17 @@ function latestTag() {
   }
 }
 
+function latestTagExcept(exclude) {
+  try {
+    const tags = capture("git", ["tag", "-l", "v*", "--sort=-v:refname"])
+      .split("\n")
+      .filter((tag) => tag && tag !== exclude);
+    return tags[0] || "";
+  } catch {
+    return "";
+  }
+}
+
 // ---------- 版本号 ----------
 function bumpVersionFiles(version, dryRun) {
   const pkgFiles = [path.join(ROOT, "package.json"), path.join(CLONE, "package.json")];
@@ -254,13 +265,19 @@ function releaseNotes(version, opts) {
     if (!fs.existsSync(opts.notes)) die("找不到发布说明文件：" + opts.notes);
     return fs.readFileSync(opts.notes, "utf8");
   }
-  const prev = latestTag();
+  // 打完 tag 之后再生成说明，所以要排除当前版本，否则 range 是空的
+  const prev = latestTagExcept("v" + version);
   let commits = "";
   try {
-    commits = capture("git", ["log", "--pretty=format:- %s", prev + "..HEAD"]).trim();
+    commits = capture("git", ["log", "--pretty=format:- %s", prev ? prev + "..HEAD" : "-10"]).trim();
   } catch {
     commits = "";
   }
+  // 版本号/发布提交本身不进说明
+  commits = commits
+    .split("\n")
+    .filter((line) => line && !/^- (chore: 版本升到|release: )/.test(line))
+    .join("\n");
   const lines = ["## v" + version, ""];
   if (commits) lines.push("### 本次提交", commits, "");
   lines.push(
@@ -375,8 +392,8 @@ async function publishExistingDraft(tagArg, opts) {
 }
 
 function previousVersionOf(version) {
-  const tags = capture("git", ["tag", "-l", "v*", "--sort=-v:refname"]).split("\n").filter((t) => t && t !== "v" + version);
-  return tags[0] ? tags[0].replace(/^v/, "") : "";
+  const tag = latestTagExcept("v" + version);
+  return tag ? tag.replace(/^v/, "") : "";
 }
 
 // ---------- 主流程 ----------
