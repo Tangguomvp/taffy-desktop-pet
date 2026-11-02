@@ -48,7 +48,9 @@
 
 | 版本 | 说明 | 下载 |
 | --- | --- | --- |
-| v1.0.4 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.4.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.4/Taffy-Desktop-Pet-Setup-1.0.4.exe) |
+| v1.0.4 | 最新版（2026-11-02 重新打包，含 9 个动作） | [Taffy-Desktop-Pet-Setup-1.0.4.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.4/Taffy-Desktop-Pet-Setup-1.0.4.exe) |
+
+> 同一版本号下重新打包：已安装 1.0.4 的用户不会收到自动更新提示，重新下载安装包覆盖即可。
 
 ## 使用
 
