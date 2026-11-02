@@ -48,9 +48,10 @@
 
 | 版本 | 说明 | 下载 |
 | --- | --- | --- |
-| v1.0.6 | 待发布（GitHub 草稿） | [Taffy-Desktop-Pet-Setup-1.0.6.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.6/Taffy-Desktop-Pet-Setup-1.0.6.exe) |
+| v1.0.6 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.6.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.6/Taffy-Desktop-Pet-Setup-1.0.6.exe) |
 | v1.0.5 | 上一版 | [Taffy-Desktop-Pet-Setup-1.0.5.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.5/Taffy-Desktop-Pet-Setup-1.0.5.exe) |
 
+> 已安装 1.0.5 / 更早版本的用户：启动后会自动检测到 v1.0.6 并后台下载，退出时自动安装。
 > v1.0.6 先以草稿 Release 上传（草稿不参与自动更新检查）：旧版本暂时不会收到更新提示。确认放行后跑 npm run release -- --publish-tag v1.0.6。
 > 已安装 1.0.4 / 更早版本的用户：启动后会自动检测到 v1.0.5 并后台下载，退出时自动安装。
 
