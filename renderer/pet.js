@@ -7,10 +7,21 @@ import {
   sampleIdleMotion,
   sampleSpinMotion,
   sampleStompMotion,
-  sampleTouchFaceMotion,
   sampleWalkMotion,
   setLegRig,
 } from "./motion.mjs";
+import {
+  ACTIONS,
+  BODY_REST,
+  GESTURE_REST,
+  actionById,
+  bodyDuration,
+  bodyHands,
+  bodyMotion,
+  gestureDuration,
+  gestureMotion as sampleGestureMotion,
+} from "./actions.mjs";
+import { resolveGesture, resolveHands } from "./arm-ik.mjs";
 
 const LINES = [
   { text: "关注塔菲谢谢喵。", emotion: "happy" },
@@ -362,6 +373,7 @@ let lastPokeAt = 0;
 let spin = { playing: false, start: 0, duration: 0, from: 0, delta: 0, yaw: 0 };
 let gesture = { name: "", start: 0, duration: 0 };
 let stomp = { playing: false, start: 0, duration: 1000 };
+let bodyAct = { name: "", start: 0, duration: 0 };
 let walker = {
   active: false,
   manual: false,
@@ -443,6 +455,7 @@ function stopWalking(reschedule = true) {
 
 function clearDiscreteActions() {
   gesture.name = "";
+  bodyAct.name = "";
   stomp.playing = false;
   spin.playing = false;
   // 转圈被中途打断时保留当前朝向，让它自己转回来，不要瞬间弹正
@@ -471,6 +484,7 @@ function actionState(now = performance.now()) {
   return {
     spin: spin.playing,
     gesture: Boolean(gesture.name && now < gesture.start + gesture.duration),
+    action: Boolean(bodyAct.name && now < bodyAct.start + bodyAct.duration),
     stomp: Boolean(stomp.playing && now < stomp.start + stomp.duration),
     walk: walker.active,
   };
@@ -579,62 +593,7 @@ function startSpin(turns = 1, duration) {
   return true;
 }
 
-// 手势目标点（模型空间坐标）
-const GESTURE_TARGETS = {
-  touchFace: { x: -0.5, y: 10.8, z: 1.72 },
-};
-
-// 手势定义（arms: 用哪条胳膊；角度在运行时由 IK 从目标点反解）
-const GESTURES = {
-  touchFace: { duration: 3600, arms: "right" },
-};
-
-// 手臂骨骼 IK 数据（模型空间，取自 PMX 骨骼坐标）
-const ARM_IK = {
-  R: {
-    shoulder: new THREE.Vector3(-1.46, 9.608, -0.121),
-    upperDir: new THREE.Vector3(-1.5, -1.175, 0.08).normalize(),
-    foreDir: new THREE.Vector3(-1.368, -1.068, -0.012).normalize(),
-    upperLen: 1.907,
-    foreLen: 1.736,
-    elbowDir: new THREE.Vector3(-1, -1, 0.3),
-  },
-  L: {
-    shoulder: new THREE.Vector3(1.46, 9.608, -0.121),
-    upperDir: new THREE.Vector3(1.5, -1.175, 0.08).normalize(),
-    foreDir: new THREE.Vector3(1.368, -1.068, -0.026).normalize(),
-    upperLen: 1.907,
-    foreLen: 1.736,
-    elbowDir: new THREE.Vector3(1, -1, 0.3),
-  },
-};
-
-// 2 段骨骼 IK：把手腕送到目标点，返回上臂/手肘欧拉角
-function solveArmIK(side, targetVec) {
-  const arm = ARM_IK[side];
-  const dvec = targetVec.clone().sub(arm.shoulder);
-  let d = dvec.length();
-  d = Math.max(Math.min(d, arm.upperLen + arm.foreLen - 0.001), Math.abs(arm.upperLen - arm.foreLen) + 0.001);
-  const a = (arm.upperLen * arm.upperLen - arm.foreLen * arm.foreLen + d * d) / (2 * d);
-  const h = Math.sqrt(Math.max(0, arm.upperLen * arm.upperLen - a * a));
-  const mid = arm.shoulder.clone().add(dvec.clone().normalize().multiplyScalar(a));
-  let perp = new THREE.Vector3().crossVectors(dvec, arm.elbowDir).normalize();
-  perp = new THREE.Vector3().crossVectors(perp, dvec).normalize();
-  if (perp.dot(arm.elbowDir) < 0) perp.multiplyScalar(-1);
-  const elbowPos = mid.clone().add(perp.multiplyScalar(h));
-
-  const qu = new THREE.Quaternion().setFromUnitVectors(
-    arm.upperDir,
-    elbowPos.clone().sub(arm.shoulder).normalize()
-  );
-  const upperEuler = new THREE.Euler().setFromQuaternion(qu, "XYZ");
-
-  const foreTargetLocal = targetVec.clone().sub(elbowPos).normalize().applyQuaternion(qu.clone().invert());
-  const qe = new THREE.Quaternion().setFromUnitVectors(arm.foreDir, foreTargetLocal);
-  const elbowEuler = new THREE.Euler().setFromQuaternion(qe, "XYZ");
-
-  return { upperEuler, elbowEuler };
-}
+// 手势目标点、IK 与动作清单见 ./actions.mjs 与 ./arm-ik.mjs（三处渲染共用）
 
 
 function onTap() {
@@ -666,14 +625,57 @@ function onTap() {
 
 function startGesture(name) {
   if (!mesh || dragging) return false;
-  const g = GESTURES[name];
-  if (!g) return false;
+  const duration = gestureDuration(name);
+  if (!duration) return false;
   const now = performance.now();
   if (!canStartAction(actionState(now), "gesture")) return false;
   gesture.name = name;
   gesture.start = now;
-  gesture.duration = g.duration;
-  if (name === "touchFace") setEmotion("blush", g.duration + 400, 1, false);
+  gesture.duration = duration;
+  if (name === "touchFace") setEmotion("blush", duration + 400, 1, false);
+  return true;
+}
+
+// 身体类动作（跳 / 跳舞）：腿脚驱动，和手势、转圈、跺脚互斥
+function startBodyAction(name) {
+  if (!mesh || dragging) return false;
+  const duration = bodyDuration(name);
+  if (!duration) return false;
+  const now = performance.now();
+  if (!canStartAction(actionState(now), "action")) return false;
+  stopWalking(false);
+  bodyAct.name = name;
+  bodyAct.start = now;
+  bodyAct.duration = duration;
+  scheduleAutoWalk(now);
+  return true;
+}
+
+// 统一动作入口：右键菜单、托盘、动作预览都走这里
+function runAction(id) {
+  const spec = actionById(id);
+  if (!spec) return false;
+  noteInteraction();
+  stopAllActions();
+  if (spec.kind === "idle") {
+    setEmotion("idle", 1200, 0.55, false);
+    showBubble(spec.line || "先安静待机一会儿喵。", 1800);
+    return true;
+  }
+  if (spec.kind === "spin") return startSpin(1);
+  if (spec.kind === "stomp") return startStomp();
+  if (spec.kind === "walk") {
+    const started = startWalking({ manual: true });
+    if (started) showBubble("塔菲去散步啦喵～", 2000);
+    return started;
+  }
+  const duration =
+    spec.kind === "gesture" ? gestureDuration(spec.gesture) : bodyDuration(spec.action);
+  const started =
+    spec.kind === "gesture" ? startGesture(spec.gesture) : startBodyAction(spec.action);
+  if (!started) return false;
+  if (spec.emotion) setEmotion(spec.emotion, duration + 400, 1, false);
+  if (spec.line) showBubble(spec.line, Math.min(duration + 400, 3200));
   return true;
 }
 
@@ -1246,6 +1248,19 @@ function openMenu(x, y) {
   window.pet.ignoreMouse(false);
 }
 
+// 动作菜单由 ACTIONS 生成，菜单、托盘、动作预览的名字不会各说各话
+function buildActionMenu() {
+  actionMenuEl.innerHTML = "";
+  for (const spec of ACTIONS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.motion = spec.id;
+    btn.textContent = spec.name;
+    actionMenuEl.appendChild(btn);
+  }
+}
+buildActionMenu();
+
 menuEl.addEventListener("click", (event) => {
   const btn = event.target.closest("button");
   if (!btn) return;
@@ -1274,29 +1289,13 @@ actionMenuEl.addEventListener("click", (event) => {
   closeActionMenu();
   restartHoverHold();
 
-  if (motion === "idle") {
-    stopAllActions();
-    setEmotion("idle", 1200, 0.55, false);
-    showBubble("先安静待机一会儿喵。", 1800);
-  } else if (motion === "spin") {
-    stopAllActions();
-    startSpin(1);
-  } else if (motion === "touch") {
-    stopAllActions();
-    startGesture("touchFace");
-  } else if (motion === "stomp") {
-    stopAllActions();
-    startStomp();
-  } else if (motion === "walk") {
-    if (wasWalking) {
-      stopWalking();
-      showBubble("塔菲停下来啦喵。", 1800);
-    } else {
-      stopAllActions();
-      startWalking({ manual: true });
-      showBubble("塔菲去散步啦喵～", 2000);
-    }
+  // 走路按钮是开关：正在走就停下，不走才起步
+  if (motion === "walk" && wasWalking) {
+    stopWalking();
+    showBubble("塔菲停下来啦喵。", 1800);
+    return;
   }
+  runAction(motion);
 });
 
 outfitMenuEl.addEventListener("click", (event) => {
@@ -1375,17 +1374,7 @@ window.pet.onTrayCommand((msg) => {
     const i = OUTFITS.findIndex((o) => o.id === msg.id);
     if (i >= 0) applyOutfit(i);
   }
-  else if (cmd === "play-action") {
-    const motion = msg && msg.motion;
-    stopAllActions();
-    if (motion === "idle") {
-      setEmotion("idle", 1200, 0.55, false);
-      showBubble("先安静待机一会儿喵。", 1800);
-    } else if (motion === "spin") startSpin(1);
-    else if (motion === "touch") startGesture("touchFace");
-    else if (motion === "stomp") startStomp();
-    else if (motion === "walk") startWalking({ manual: true });
-  }
+  else if (cmd === "play-action") runAction(msg && msg.motion);
   else if (cmd === "walk-mode") setWalkMode(!walkModeEnabled);
   else if (cmd === "top") speak(msg.on ? "会一直站在最上面喵。" : "先不置顶了喵。", msg.on ? "smug" : "sad");
   else if (cmd === "open-settings") {
@@ -1710,6 +1699,13 @@ function tick() {
       : 1;
     const stompMotion = sampleStompMotion(stompProgress);
     if (stomp.playing && stompProgress >= 1) stomp.playing = false;
+    const actProgress = bodyAct.name
+      ? Math.min(1, (now - bodyAct.start) / Math.max(1, bodyAct.duration))
+      : 1;
+    const actMotion = bodyAct.name
+      ? bodyMotion(bodyAct.name, actProgress) || BODY_REST
+      : BODY_REST;
+    if (bodyAct.name && actProgress >= 1) bodyAct.name = "";
     const walkMotion = updateWalking(now, dt);
     const pk = 1 - Math.exp(-dt * 8);
     poseCur.headX += ((pose.headX || 0) - poseCur.headX) * pk;
@@ -1755,13 +1751,14 @@ function tick() {
     // 手势进度：使用带缓入、停留和回收的动作曲线。
     let gEnv = 0;
     let gSpec = null;
-    let gestureMotion = sampleTouchFaceMotion(1);
+    let gestureMotion = GESTURE_REST;
     if (gesture.name && now < gesture.start + gesture.duration) {
-      gSpec = GESTURES[gesture.name] || null;
-      if (gSpec) {
-        const gp = Math.max(0, Math.min(1, (now - gesture.start) / gesture.duration));
-        gestureMotion = sampleTouchFaceMotion(gp);
-        gEnv = gestureMotion.weight;
+      gSpec = gesture.name;
+      const gp = Math.max(0, Math.min(1, (now - gesture.start) / gesture.duration));
+      const sampled = sampleGestureMotion(gesture.name, gp);
+      if (sampled) {
+        gestureMotion = sampled;
+        gEnv = sampled.weight;
       }
     } else if (gesture.name) {
       gesture.name = "";
@@ -1769,37 +1766,38 @@ function tick() {
 
     const lower = bone("下半身");
     if (upper) {
-      upper.rotation.z = idleMotion.bodyZ + spinMotion.bodyX + gestureMotion.bodyZ + walkMotion.bodyZ + stompMotion.bodyZ;
-      upper.rotation.x = idleMotion.breath + idleMotion.bodyX + poseCur.upperX + spinMotion.bodyZ + walkMotion.bodyX + stompMotion.bodyX + (gestureMotion.bodyX || 0) + stompMotion.impact * 0.025;
-      upper.rotation.y = (walkMotion.upperY || 0) + (stompMotion.upperY || 0);
+      upper.rotation.z = idleMotion.bodyZ + spinMotion.bodyX + gestureMotion.bodyZ + walkMotion.bodyZ + stompMotion.bodyZ + actMotion.bodyZ;
+      upper.rotation.x = idleMotion.breath + idleMotion.bodyX + poseCur.upperX + spinMotion.bodyZ + walkMotion.bodyX + stompMotion.bodyX + (gestureMotion.bodyX || 0) + (actMotion.bodyX || 0) + stompMotion.impact * 0.025 + actMotion.impact * 0.025;
+      upper.rotation.y = (walkMotion.upperY || 0) + (stompMotion.upperY || 0) + (actMotion.upperY || 0);
     }
-    if (lower) lower.rotation.y = (walkMotion.lowerY || 0) + (stompMotion.lowerY || 0);
+    if (lower) lower.rotation.y = (walkMotion.lowerY || 0) + (stompMotion.lowerY || 0) + (actMotion.lowerY || 0);
     if (head) {
-      head.rotation.y = idleMotion.headY + look.y + poseCur.headY + (gestureMotion.headY || 0) + (walkMotion.headY || 0) + walker.glanceY;
-      head.rotation.z = idleMotion.headZ + poseCur.headZ + spinMotion.bodyX * 0.45 + gestureMotion.headZ + stompMotion.headZ;
-      head.rotation.x = idleMotion.headX + look.x + poseCur.headX + gestureMotion.headX + stompMotion.headX + (walkMotion.headX || 0);
+      head.rotation.y = idleMotion.headY + look.y + poseCur.headY + (gestureMotion.headY || 0) + (walkMotion.headY || 0) + (actMotion.headY || 0) + walker.glanceY;
+      head.rotation.z = idleMotion.headZ + poseCur.headZ + spinMotion.bodyX * 0.45 + gestureMotion.headZ + stompMotion.headZ + (actMotion.headZ || 0);
+      head.rotation.x = idleMotion.headX + look.x + poseCur.headX + gestureMotion.headX + stompMotion.headX + (walkMotion.headX || 0) + (actMotion.headX || 0);
     }
     if (neck) neck.rotation.x = idleMotion.breath * 0.6 + look.x * 0.35 + gestureMotion.headX * 0.3;
 
-    // 基础手臂姿态（情绪抬手 / 转圈张臂 / 空闲甩胳膊）
-    const raiseR = Math.max(poseCur.armR, spinMotion.armOpen * 0.82);
-    const raiseL = Math.max(poseCur.armL, spinMotion.armOpen * 0.82);
+    // 基础手臂姿态（情绪抬手 / 转圈张臂 / 空闲甩胳膊 / 跳跃张臂）
+    const armOpen = Math.max(spinMotion.armOpen || 0, actMotion.armOpen || 0);
+    const raiseR = Math.max(poseCur.armR, armOpen * 0.82);
+    const raiseL = Math.max(poseCur.armL, armOpen * 0.82);
     const talkDamp = now < talkingUntil ? 0.2 : 1;
     const swingDamp = 1 - Math.min(1, ((raiseR + raiseL) / 2) * 1.5);
     // 站立时手臂自然下垂（MMD A-pose 张得太开，像"飞机手"）；转圈张臂时让位给 armOpen
-    const armDrop = 0.62 * (1 - spinMotion.armOpen);
+    const armDrop = 0.62 * (1 - armOpen);
     const baseArmR = {
-      x: idleMotion.armR * talkDamp * swingDamp + idleMotion.breath * 0.6 + walkMotion.armR + stompMotion.armR,
+      x: idleMotion.armR * talkDamp * swingDamp + idleMotion.breath * 0.6 + walkMotion.armR + stompMotion.armR + (actMotion.armR || 0),
       y: 0,
-      z: -raiseR * 1.15 + armDrop,
+      z: -raiseR * 1.15 + armDrop + (actMotion.armZR || 0),
     };
     const baseArmL = {
-      x: idleMotion.armL * talkDamp * swingDamp + idleMotion.breath * 0.6 + walkMotion.armL + stompMotion.armL,
+      x: idleMotion.armL * talkDamp * swingDamp + idleMotion.breath * 0.6 + walkMotion.armL + stompMotion.armL + (actMotion.armL || 0),
       y: 0,
-      z: raiseL * 1.15 - armDrop,
+      z: raiseL * 1.15 - armDrop + (actMotion.armZL || 0),
     };
-    const baseElbowR = { x: -poseCur.elbow - spinMotion.armOpen * 0.25 - (walkMotion.elbowR || 0), y: 0, z: 0 };
-    const baseElbowL = { x: -poseCur.elbow - spinMotion.armOpen * 0.25 - (walkMotion.elbowL || 0), y: 0, z: 0 };
+    const baseElbowR = { x: -poseCur.elbow - armOpen * 0.25 - (walkMotion.elbowR || 0) - (actMotion.elbowR || 0), y: 0, z: 0 };
+    const baseElbowL = { x: -poseCur.elbow - armOpen * 0.25 - (walkMotion.elbowL || 0) - (actMotion.elbowL || 0), y: 0, z: 0 };
 
     const blendPose = (base, target, weight) => {
       if (!target || weight <= 0) return base;
@@ -1817,68 +1815,84 @@ function tick() {
 
     // 手势目标（运行时由 IK 从目标点反解出角度）
     let gArmR = null, gArmL = null, gElbowR = null, gElbowL = null;
-    if (gSpec) {
-      const t = GESTURE_TARGETS[gesture.name];
-      if (t) {
-        const targetVec = new THREE.Vector3(
-          t.x + gestureMotion.targetXOffset,
-          t.y + gestureMotion.targetYOffset,
-          t.z
-        );
-        if (gSpec.arms === "right" || gSpec.arms === "both") {
-          const r = solveArmIK("R", targetVec);
-          gArmR = { x: r.upperEuler.x, y: r.upperEuler.y, z: r.upperEuler.z };
-          gElbowR = { x: r.elbowEuler.x, y: r.elbowEuler.y, z: r.elbowEuler.z };
-        }
-        if (gSpec.arms === "both") {
-          const l = solveArmIK("L", targetVec);
-          gArmL = { x: l.upperEuler.x, y: l.upperEuler.y, z: l.upperEuler.z };
-          gElbowL = { x: l.elbowEuler.x, y: l.elbowEuler.y, z: l.elbowEuler.z };
-        }
+    if (gSpec && gEnv > 0.001) {
+      const solved = resolveGesture(gSpec, gestureMotion);
+      if (solved.R) {
+        gArmR = { x: solved.R.upper.x, y: solved.R.upper.y, z: solved.R.upper.z };
+        gElbowR = { x: solved.R.elbow.x, y: solved.R.elbow.y, z: solved.R.elbow.z };
+      }
+      if (solved.L) {
+        gArmL = { x: solved.L.upper.x, y: solved.L.upper.y, z: solved.L.upper.z };
+        gElbowL = { x: solved.L.elbow.x, y: solved.L.elbow.y, z: solved.L.elbow.z };
       }
     }
-    const mix = (base, g) => {
-      return blendPose(base, g, gEnv);
+    // 身体动作（跳/舞）也能定手位：权重来自曲线的 handW，和手势 IK 走同一条混合链
+    const handSpec = bodyAct.name ? bodyHands(bodyAct.name) : null;
+    const handW = handSpec ? Math.max(0, Math.min(1, actMotion.handW || 0)) : 0;
+    let bArmR = null, bArmL = null, bElbowR = null, bElbowL = null;
+    if (handSpec && handW > 0.001) {
+      const solved = resolveHands(handSpec, {
+        targetYOffset: actMotion.handDY || 0,
+        targetZOffset: actMotion.handDZ || 0,
+      });
+      if (solved.R) {
+        bArmR = { x: solved.R.upper.x, y: solved.R.upper.y, z: solved.R.upper.z };
+        bElbowR = { x: solved.R.elbow.x, y: solved.R.elbow.y, z: solved.R.elbow.z };
+      }
+      if (solved.L) {
+        bArmL = { x: solved.L.upper.x, y: solved.L.upper.y, z: solved.L.upper.z };
+        bElbowL = { x: solved.L.elbow.x, y: solved.L.elbow.y, z: solved.L.elbow.z };
+      }
+    }
+
+    // 依次混合：基础姿态 → 身体动作手位 → 手势 IK
+    const mix = (base, body, gesture) => {
+      const withBody = blendPose(base, body, handW);
+      return blendPose(withBody, gesture, gEnv);
     };
 
     if (armR) {
-      const r = mix(activeArmR, gArmR);
+      const r = mix(activeArmR, bArmR, gArmR);
       armR.rotation.x = r.x; armR.rotation.y = r.y; armR.rotation.z = r.z;
     }
     if (armL) {
-      const r = mix(activeArmL, gArmL);
+      const r = mix(activeArmL, bArmL, gArmL);
       armL.rotation.x = r.x; armL.rotation.y = r.y; armL.rotation.z = r.z;
     }
     if (elbowR) {
-      const r = mix(activeElbowR, gElbowR);
+      const r = mix(activeElbowR, bElbowR, gElbowR);
       elbowR.rotation.x = r.x; elbowR.rotation.y = r.y; elbowR.rotation.z = r.z;
     }
     if (elbowL) {
-      const r = mix(activeElbowL, gElbowL);
+      const r = mix(activeElbowL, bElbowL, gElbowL);
       elbowL.rotation.x = r.x; elbowL.rotation.y = r.y; elbowL.rotation.z = r.z;
     }
-    if (shoulderR) shoulderR.rotation.z = -spinMotion.armOpen * 0.1;
-    if (shoulderL) shoulderL.rotation.z = spinMotion.armOpen * 0.1;
+    if (shoulderR) {
+      shoulderR.rotation.z = -spinMotion.armOpen * 0.1 - (gestureMotion.shoulderR || 0) - (actMotion.shoulderR || 0);
+    }
+    if (shoulderL) {
+      shoulderL.rotation.z = spinMotion.armOpen * 0.1 + (gestureMotion.shoulderL || 0) + (actMotion.shoulderL || 0);
+    }
     if (legR) {
-      legR.rotation.x = walkMotion.legR + stompMotion.legR + (spinMotion.legR || 0);
-      legR.rotation.z = walkMotion.legRZ + stompMotion.legRZ + (spinMotion.legRZ || 0);
-      setLegBoneOffset(legR, walkMotion.legRX + stompMotion.legRX, walkMotion.legRY + stompMotion.legRY);
+      legR.rotation.x = walkMotion.legR + stompMotion.legR + (spinMotion.legR || 0) + (actMotion.legR || 0);
+      legR.rotation.z = walkMotion.legRZ + stompMotion.legRZ + (spinMotion.legRZ || 0) + (actMotion.legRZ || 0);
+      setLegBoneOffset(legR, walkMotion.legRX + stompMotion.legRX + (actMotion.legRX || 0), walkMotion.legRY + stompMotion.legRY + (actMotion.legRY || 0));
     }
     if (legL) {
-      legL.rotation.x = walkMotion.legL + stompMotion.legL + (spinMotion.legL || 0);
-      legL.rotation.z = walkMotion.legLZ + stompMotion.legLZ;
-      setLegBoneOffset(legL, walkMotion.legLX + stompMotion.legLX, walkMotion.legLY + stompMotion.legLY);
+      legL.rotation.x = walkMotion.legL + stompMotion.legL + (spinMotion.legL || 0) + (actMotion.legL || 0);
+      legL.rotation.z = walkMotion.legLZ + stompMotion.legLZ + (actMotion.legLZ || 0);
+      setLegBoneOffset(legL, walkMotion.legLX + stompMotion.legLX + (actMotion.legLX || 0), walkMotion.legLY + stompMotion.legLY + (actMotion.legLY || 0));
     }
-    if (kneeR) kneeR.rotation.x = walkMotion.kneeR + stompMotion.kneeR + (spinMotion.kneeR || 0);
-    if (kneeL) kneeL.rotation.x = walkMotion.kneeL + stompMotion.kneeL + (spinMotion.kneeL || 0);
-    if (ankleR) ankleR.rotation.x = walkMotion.footR + stompMotion.footR + (spinMotion.footR || 0);
-    if (ankleL) ankleL.rotation.x = walkMotion.footL + stompMotion.footL + (spinMotion.footL || 0);
+    if (kneeR) kneeR.rotation.x = walkMotion.kneeR + stompMotion.kneeR + (spinMotion.kneeR || 0) + (actMotion.kneeR || 0);
+    if (kneeL) kneeL.rotation.x = walkMotion.kneeL + stompMotion.kneeL + (spinMotion.kneeL || 0) + (actMotion.kneeL || 0);
+    if (ankleR) ankleR.rotation.x = walkMotion.footR + stompMotion.footR + (spinMotion.footR || 0) + (actMotion.footR || 0);
+    if (ankleL) ankleL.rotation.x = walkMotion.footL + stompMotion.footL + (spinMotion.footL || 0) + (actMotion.footL || 0);
 
     if (center) {
       const emotionBounce = poseCur.bounce * Math.max(0, Math.sin(t * 5.6)) ** 2 * 0.1;
-      const bounce = idleMotion.centerY + emotionBounce + spinMotion.centerY + walkMotion.centerY + stompMotion.centerY;
+      const bounce = idleMotion.centerY + emotionBounce + spinMotion.centerY + walkMotion.centerY + stompMotion.centerY + (actMotion.centerY || 0);
       center.position.y = bounce;
-      center.position.x = walkMotion.centerX + stompMotion.centerX;
+      center.position.x = walkMotion.centerX + stompMotion.centerX + (actMotion.centerX || 0);
     }
 
     applyEmotionMorphs(now, t);

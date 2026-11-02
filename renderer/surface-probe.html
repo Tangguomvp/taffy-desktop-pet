@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8" />
+<script type="importmap">
+{ "imports": { "three": "../node_modules/three/build/three.module.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head><body>
+<script type="module">
+import * as THREE from "three";
+import { MMDLoader } from "three/addons/loaders/MMDLoader.js";
+
+const url = new URL("../models/taffy1883/taffy.pmx", import.meta.url).href;
+
+try {
+  const mesh = await new Promise((res, rej) => new MMDLoader().load(url, res, undefined, rej));
+
+  // 收集静止姿态下的所有顶点（模型空间）
+  const verts = [];
+  mesh.updateMatrixWorld(true);
+  mesh.traverse((o) => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.attributes.position;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      o.localToWorld(v);
+      verts.push(v.clone());
+    }
+  });
+
+  function nearest(point) {
+    let best = Infinity;
+    let who = null;
+    for (const p of verts) {
+      const d = p.distanceTo(point);
+      if (d < best) { best = d; who = p; }
+    }
+    return { d: +best.toFixed(3), at: who.toArray().map((n) => +n.toFixed(2)) };
+  }
+
+  function envelope(x, y) {
+    let frontZ = -Infinity;
+    let maxAbsX = 0;
+    let frontAbsX = 0;
+    for (const p of verts) {
+      if (Math.abs(p.y - y) > 0.45) continue;
+      if (Math.abs(p.x) > maxAbsX) maxAbsX = Math.abs(p.x);
+      if (Math.abs(p.x - x) <= 0.35) {
+        if (p.z > frontZ) frontZ = p.z;
+        if (p.z > 1.0 && Math.abs(p.x) > frontAbsX) frontAbsX = Math.abs(p.x);
+      }
+    }
+    return {
+      frontZ: Number.isFinite(frontZ) ? +frontZ.toFixed(2) : null,
+      maxAbsX: +maxAbsX.toFixed(2),
+      frontAbsX: +frontAbsX.toFixed(2),
+    };
+  }
+
+  const box = new THREE.Box3().setFromObject(mesh);
+
+  window.__surface = {
+    ok: true,
+    bbox: box.min.toArray().concat(box.max.toArray()).map((n) => +n.toFixed(2)),
+    vertices: verts.length,
+    probe: (points) =>
+      points.map(([x, y, z]) => {
+        const p = new THREE.Vector3(x, y, z);
+        const env = envelope(x, y);
+        const near = nearest(p);
+        return {
+          at: [x, y, z],
+          frontZ: env.frontZ,
+          clearance: env.frontZ == null ? null : +(z - env.frontZ).toFixed(2),
+          maxAbsX: env.maxAbsX,
+          frontAbsX: env.frontAbsX,
+          nearestVertex: near.d,
+          nearestAt: near.at,
+        };
+      }),
+    // 二维前表面表：给每个 (|x|, y) 一个 z 前界面，用来校验手有没有插进身体
+    grid: (xs, ys) => {
+      const out = [];
+      for (const y of ys) {
+        const row = { y: +y.toFixed(1), z: [] };
+        for (const x of xs) row.z.push(envelope(x, y).frontZ);
+        out.push(row);
+      }
+      return out;
+    },
+    rows: () => {
+      const out = [];
+      for (let y = 6; y <= 15; y += 0.5) {
+        const env = envelope(0, y);
+        out.push({ y: +y.toFixed(1), frontZ: env.frontZ, maxAbsX: env.maxAbsX });
+      }
+      return out;
+    },
+  };
+  document.title = "surface-ready";
+} catch (error) {
+  window.__surface = { ok: false, error: String(error && (error.stack || error.message)) };
+  document.title = "surface-error";
+}
+</script>
+</body></html>

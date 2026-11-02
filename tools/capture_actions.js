@@ -34,11 +34,24 @@ app.whenReady().then(async () => {
     }
     if (title !== "preview-actions-ready") throw new Error("action preview timed out");
     const validation = await win.webContents.executeJavaScript("window.actionValidation");
-    const image = await win.webContents.capturePage();
-    const output = path.join(__dirname, "action_preview.png");
-    fs.writeFileSync(output, image.toPNG());
-    console.log("validated", validation);
-    console.log("wrote", output, image.getSize());
+    // 动作变多后一屏放不下：按屏滚动，每屏存一张，方便逐张目视检查
+    const pages = await win.webContents.executeJavaScript(
+      "Math.max(1, Math.ceil(document.documentElement.scrollHeight / window.innerHeight))"
+    );
+    for (let page = 0; page < pages; page++) {
+      await win.webContents.executeJavaScript(
+        "window.scrollTo(0, " + page + " * window.innerHeight)"
+      );
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const image = await win.webContents.capturePage();
+      const output = path.join(
+        __dirname,
+        page === 0 ? "action_preview.png" : "action_preview_" + (page + 1) + ".png"
+      );
+      fs.writeFileSync(output, image.toPNG());
+      console.log("wrote", output, image.getSize());
+    }
+    console.log("validated", validation, "pages", pages);
   } catch (error) {
     console.error(error?.stack || error);
     process.exitCode = 1;

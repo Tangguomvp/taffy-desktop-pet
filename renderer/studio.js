@@ -1,15 +1,8 @@
 import * as THREE from "three";
 import { MMDLoader } from "three/addons/loaders/MMDLoader.js";
-import {
-  facingYawForDirection,
-  pickByAliasPriority,
-  sampleIdleMotion,
-  sampleSpinMotion,
-  sampleStompMotion,
-  sampleTouchFaceMotion,
-  sampleWalkMotion,
-  setLegRig,
-} from "./motion.mjs";
+import { pickByAliasPriority, setLegRig } from "./motion.mjs";
+import { ACTIONS, actionById } from "./actions.mjs";
+import { applyMotionPose, sampleActionPose } from "./pose.mjs";
 
 const mode = new URLSearchParams(location.search).get("mode") === "outfits" ? "outfits" : "actions";
 const titleEl = document.getElementById("title");
@@ -28,14 +21,6 @@ hintEl.textContent = mode === "outfits"
 applyEl.textContent = mode === "outfits" ? "穿上这套" : "让小菲做这个";
 importEl.hidden = mode !== "outfits";
 
-const ACTIONS = [
-  { id: "idle", name: "自然待机" },
-  { id: "spin", name: "张臂转圈软着陆" },
-  { id: "touch", name: "害羞摸脸" },
-  { id: "stomp", name: "跺脚" },
-  { id: "walk", name: "走动" },
-];
-
 const BUILTIN_OUTFITS = [
   { id: "1883", name: "1883 藏青" },
   { id: "green", name: "四叶草绿", file: "outfits/green.png" },
@@ -50,25 +35,6 @@ const BUILTIN_OUTFITS = [
 
 const TEX_BASE = new URL("../models/taffy1883/tex/", import.meta.url).href;
 const BASE_PMX = new URL("../models/taffy1883/taffy.pmx", import.meta.url).href;
-const ARM_IK = {
-  R: {
-    shoulder: new THREE.Vector3(-1.46, 9.608, -0.121),
-    upperDir: new THREE.Vector3(-1.5, -1.175, 0.08).normalize(),
-    foreDir: new THREE.Vector3(-1.368, -1.068, -0.012).normalize(),
-    upperLen: 1.907,
-    foreLen: 1.736,
-    elbowDir: new THREE.Vector3(-1, -1, 0.3),
-  },
-  L: {
-    shoulder: new THREE.Vector3(1.46, 9.608, -0.121),
-    upperDir: new THREE.Vector3(1.5, -1.175, 0.08).normalize(),
-    foreDir: new THREE.Vector3(1.368, -1.068, -0.026).normalize(),
-    upperLen: 1.907,
-    foreLen: 1.736,
-    elbowDir: new THREE.Vector3(1, -1, 0.3),
-  },
-};
-
 let outfits = BUILTIN_OUTFITS.slice();
 let selected = mode === "outfits" ? "1883" : "idle";
 let mesh = null;
@@ -104,25 +70,6 @@ function setStatus(text) {
 function boneAny(...names) {
   if (!mesh) return null;
   return pickByAliasPriority(mesh.skeleton.bones, names);
-}
-
-function solveArmIK(side, targetVec) {
-  const arm = ARM_IK[side];
-  const dvec = targetVec.clone().sub(arm.shoulder);
-  let d = dvec.length();
-  d = Math.max(Math.min(d, arm.upperLen + arm.foreLen - 0.001), Math.abs(arm.upperLen - arm.foreLen) + 0.001);
-  const a = (arm.upperLen * arm.upperLen - arm.foreLen * arm.foreLen + d * d) / (2 * d);
-  const h = Math.sqrt(Math.max(0, arm.upperLen * arm.upperLen - a * a));
-  const mid = arm.shoulder.clone().add(dvec.clone().normalize().multiplyScalar(a));
-  let perp = new THREE.Vector3().crossVectors(dvec, arm.elbowDir).normalize();
-  perp = new THREE.Vector3().crossVectors(perp, dvec).normalize();
-  if (perp.dot(arm.elbowDir) < 0) perp.multiplyScalar(-1);
-  const elbowPos = mid.clone().add(perp.multiplyScalar(h));
-  const qu = new THREE.Quaternion().setFromUnitVectors(arm.upperDir, elbowPos.clone().sub(arm.shoulder).normalize());
-  const upperEuler = new THREE.Euler().setFromQuaternion(qu, "XYZ");
-  const foreTargetLocal = targetVec.clone().sub(elbowPos).normalize().applyQuaternion(qu.clone().invert());
-  const qe = new THREE.Quaternion().setFromUnitVectors(arm.foreDir, foreTargetLocal);
-  return { upperEuler, elbowEuler: new THREE.Euler().setFromQuaternion(qe, "XYZ") };
 }
 
 function fitCamera() {
@@ -273,138 +220,23 @@ function applyToPet() {
 }
 
 function actionPose(now) {
-  const idle = sampleIdleMotion(clock.getElapsedTime());
-  const kind = selected;
-  let spin = sampleSpinMotion(0);
-  let touch = sampleTouchFaceMotion(1);
-  let stomp = sampleStompMotion(1);
-  let walk = sampleWalkMotion(0, 0);
-  let facing = 0;
-  if (kind === "spin") {
-    const u = Math.min(1, (now - actionStart) / 1400);
-    spin = sampleSpinMotion(u);
-    facing = spin.turns * Math.PI * 2;
-    if (u >= 1) {
-      selected = "idle";
-      labelEl.textContent = "自然待机";
-    }
-  } else if (kind === "touch") {
-    const u = Math.min(1, (now - actionStart) / 3600);
-    touch = sampleTouchFaceMotion(u);
-    if (u >= 1) {
-      selected = "idle";
-      labelEl.textContent = "自然待机";
-    }
-  } else if (kind === "stomp") {
-    const u = Math.min(1, (now - actionStart) / 1000);
-    stomp = sampleStompMotion(u);
-    if (u >= 1) {
-      selected = "idle";
-      labelEl.textContent = "自然待机";
-    }
-  } else if (kind === "walk") {
-    walk = sampleWalkMotion((now - actionStart) / 1000, 1);
-    facing = facingYawForDirection(-1, 1);
+  const pose = sampleActionPose(selectedAction(), (now - actionStart) / 1000, clock.getElapsedTime());
+  if (pose.finished && selected !== "idle") {
+    selected = "idle";
+    paintList();
+    labelEl.textContent = "自然待机";
   }
-  if (kind !== selected) paintList();
-  return { idle, spin, touch, stomp, walk, facing, kind };
+  return pose;
 }
 
 function tick() {
   requestAnimationFrame(tick);
   if (!mesh) return;
   const now = performance.now();
-  const pose = mode === "actions" ? actionPose(now) : {
-    idle: sampleIdleMotion(clock.getElapsedTime()),
-    spin: sampleSpinMotion(0),
-    touch: sampleTouchFaceMotion(1),
-    stomp: sampleStompMotion(1),
-    walk: sampleWalkMotion(0, 0),
-    facing: 0,
-    kind: "idle",
-  };
-  const { idle, spin, touch, stomp, walk, facing, kind } = pose;
-  const head = boneAny("頭", "头", "Head");
-  const neck = boneAny("首");
-  const upper = boneAny("上半身");
-  const lower = boneAny("下半身");
-  const center = boneAny("センター", "センター2");
-  const armR = boneAny("右腕D");
-  const armL = boneAny("左腕D");
-  const elbowR = boneAny("右ひじD");
-  const elbowL = boneAny("左ひじD");
-  const shoulderR = boneAny("右肩D");
-  const shoulderL = boneAny("左肩D");
-  const legR = boneAny("右足D", "右足", "右腿", "RightLeg");
-  const legL = boneAny("左足D", "左足", "左腿", "LeftLeg");
-  const kneeR = boneAny("右ひざD", "右ひざ", "右膝", "RightKnee");
-  const kneeL = boneAny("左ひざD", "左ひざ", "左膝", "LeftKnee");
-  const ankleR = boneAny("右足首D", "右足首", "右脚踝", "RightAnkle");
-  const ankleL = boneAny("左足首D", "左足首", "左脚踝", "LeftAnkle");
-
-  mesh.rotation.y = facing;
-  if (upper) {
-    upper.rotation.z = idle.bodyZ + spin.bodyX + touch.bodyZ + walk.bodyZ + stomp.bodyZ;
-    upper.rotation.x = idle.breath + idle.bodyX + spin.bodyZ + walk.bodyX + stomp.bodyX + stomp.impact * 0.025;
-    upper.rotation.y = (walk.upperY || 0) + (stomp.upperY || 0);
-  }
-  if (lower) lower.rotation.y = (walk.lowerY || 0) + (stomp.lowerY || 0);
-  if (head) {
-    head.rotation.x = idle.headX + touch.headX + stomp.headX + (walk.headX || 0);
-    head.rotation.y = idle.headY + (touch.headY || 0) + (walk.headY || 0);
-    head.rotation.z = idle.headZ + spin.bodyX * 0.45 + touch.headZ + stomp.headZ;
-  }
-  if (neck) neck.rotation.x = idle.breath * 0.6 + touch.headX * 0.3;
-  if (center) {
-    center.position.x = walk.centerX + stomp.centerX;
-    center.position.y = idle.centerY + spin.centerY + walk.centerY + stomp.centerY;
-  }
-
-  const armDrop = 0.62 * (1 - spin.armOpen);
-  if (kind === "touch" && armR) {
-    const t = new THREE.Vector3(-0.5 + touch.targetXOffset, 10.8 + touch.targetYOffset, 1.72);
-    const solved = solveArmIK("R", t);
-    const w = touch.weight || 0;
-    armR.rotation.set(
-      armR.rotation.x * (1 - w) + solved.upperEuler.x * w,
-      solved.upperEuler.y * w,
-      -armDrop * (1 - w) + solved.upperEuler.z * w
-    );
-    if (elbowR) elbowR.rotation.set(solved.elbowEuler.x * w, solved.elbowEuler.y * w, solved.elbowEuler.z * w);
-    if (armL) {
-      armL.rotation.x = idle.armL;
-      armL.rotation.z = -armDrop;
-    }
-  } else {
-    if (armR) {
-      armR.rotation.x = idle.armR + walk.armR + stomp.armR;
-      armR.rotation.y = 0;
-      armR.rotation.z = -spin.armOpen * 0.94 + armDrop;
-    }
-    if (armL) {
-      armL.rotation.x = idle.armL + walk.armL + stomp.armL;
-      armL.rotation.y = 0;
-      armL.rotation.z = spin.armOpen * 0.94 - armDrop;
-    }
-    if (elbowR) elbowR.rotation.set(-spin.armOpen * 0.25 - (walk.elbowR || 0), 0, 0);
-    if (elbowL) elbowL.rotation.set(-spin.armOpen * 0.25 - (walk.elbowL || 0), 0, 0);
-  }
-  if (shoulderR) shoulderR.rotation.z = -spin.armOpen * 0.1;
-  if (shoulderL) shoulderL.rotation.z = spin.armOpen * 0.1;
-  if (legR) {
-    legR.rotation.x = walk.legR + stomp.legR + (spin.legR || 0);
-    legR.rotation.z = walk.legRZ + stomp.legRZ + (spin.legRZ || 0);
-  }
-  if (legL) {
-    legL.rotation.x = walk.legL + stomp.legL + (spin.legL || 0);
-    legL.rotation.z = walk.legLZ + stomp.legLZ;
-  }
-  if (kneeR) kneeR.rotation.x = walk.kneeR + stomp.kneeR + (spin.kneeR || 0);
-  if (kneeL) kneeL.rotation.x = walk.kneeL + stomp.kneeL + (spin.kneeL || 0);
-  if (ankleR) ankleR.rotation.x = (walk.footR || 0) + (stomp.footR || 0) + (spin.footR || 0);
-  if (ankleL) ankleL.rotation.x = (walk.footL || 0) + (stomp.footL || 0) + (spin.footL || 0);
-
-  mesh.skeleton.bones.forEach((b) => b.updateMatrixWorld());
+  const pose = mode === "actions"
+    ? actionPose(now)
+    : sampleActionPose(null, 0, clock.getElapsedTime());
+  applyMotionPose(mesh, pose);
   renderer.setClearColor(0x000000, 0);
   renderer.render(scene, camera);
 }

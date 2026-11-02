@@ -116,17 +116,17 @@ export function facingYawForDirection(direction, blend = 1) {
   return direction < 0 ? -0.38 : 0.38;
 }
 
+// 离散动作互斥，走路与任何离散动作互斥。
+// requested 用仲裁键（spin / gesture / stomp / action / walk），
+// jump、dance 这类身体动作统一归到 action。
+const DISCRETE_ACTIONS = ["spin", "gesture", "stomp", "action"];
+
 export function canStartAction(active, requested) {
   const state = active || {};
-  const spin = Boolean(state.spin);
-  const gesture = Boolean(state.gesture);
-  const stomp = Boolean(state.stomp);
-  const walk = Boolean(state.walk);
-  if (requested === "spin") return !spin && !gesture && !stomp && !walk;
-  if (requested === "gesture") return !spin && !gesture && !stomp && !walk;
-  if (requested === "stomp") return !spin && !gesture && !stomp && !walk;
-  if (requested === "walk") return !walk && !spin && !gesture && !stomp;
-  return false;
+  const key = requested === "jump" || requested === "dance" ? "action" : requested;
+  if (key !== "walk" && !DISCRETE_ACTIONS.includes(key)) return false;
+  if (state.walk) return false;
+  return !DISCRETE_ACTIONS.some((name) => Boolean(state[name]));
 }
 
 export function phaseEnvelope(progress, attackEnd = 0.28, releaseStart = 0.72) {
@@ -555,3 +555,421 @@ export function sampleWalkMotion(seconds, strength = 1) {
     elbowL: (0.2 + 0.16 * step) * amount,
   };
 }
+
+// ===========================================================================
+// 第二批动作：手势类（IK 目标偏移）+ 身体类（沿用跺脚通道词汇）
+// 所有曲线在 p=0 与 p=1 必须精确归零，动作之间才不会跳变。
+// ===========================================================================
+
+const gestureRestPose = () => ({
+  weight: 0,
+  shoulderR: 0,
+  shoulderL: 0,
+  targetXOffset: 0,
+  targetYOffset: 0,
+  targetZOffset: 0,
+  targetXOffsetL: 0,
+  targetYOffsetL: 0,
+  targetZOffsetL: 0,
+  headX: 0,
+  headY: 0,
+  headZ: 0,
+  bodyX: 0,
+  bodyZ: 0,
+  upperY: 0,
+});
+
+// ---------------------------------------------------------------------------
+// 招手：抬手走弧线 → 手举稳后左右摆 → 手先收回、头再回正
+// 挥手时肩膀几乎不动、只有手在摆，读起来才像"打招呼"而不是"抡胳膊"。
+// ---------------------------------------------------------------------------
+
+export function sampleWaveMotion(progress) {
+  const p = clamp01(progress);
+  if (p <= 0 || p >= 1) return gestureRestPose();
+
+  // 抬手/放手各占四分之一，中间是挥手停留段
+  const raise = smootherstep(clamp01(p / 0.26));
+  const lower = smootherstep(clamp01((1 - p) / 0.3));
+  const lift = Math.min(raise, lower);
+  // 抬手先往外下方走一段弧线，手不会沿着直线"弹"到目标点
+  const arc = Math.sin(clamp01(lift) * Math.PI);
+  const hold = phaseEnvelope(p, 0.34, 0.64);
+  const swingPhase = ((p - 0.26) / 0.48) * Math.PI * 2 * 2.2;
+  const swing = Math.sin(swingPhase);
+  const tilt = Math.sin(swingPhase * 0.5);
+
+  return {
+    weight: lift,
+    // 抬手的肩膀会跟着耸起来，大臂才不是一条僵住的直线
+    shoulderR: 0.16 * lift + 0.03 * Math.abs(swing) * hold,
+    shoulderL: 0,
+    targetXOffset: -0.12 * arc + swing * 0.26 * hold,
+    targetYOffset: -0.3 * arc + 0.05 * Math.abs(swing) * hold,
+    targetZOffset: -0.12 * arc + 0.04 * lift,
+    targetXOffsetL: 0,
+    targetYOffsetL: 0,
+    targetZOffsetL: 0,
+    // 头比手慢半拍：手摆到中段头才跟着偏
+    headX: 0.02 * lift,
+    headY: 0.05 * lift + 0.02 * tilt * hold,
+    headZ: -0.07 * lift - 0.02 * swing * hold,
+    bodyX: -0.012 * lift,
+    bodyZ: 0.03 * tilt * lift,
+    upperY: 0.04 * tilt * lift,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 伸懒腰：双手举过头顶 → 后仰含胸、肩胛打开 → 停留 → 收回
+// 拉伸的主导是"上身后仰 + 手往上够"，不是把手举高而已。
+// ---------------------------------------------------------------------------
+
+// 已下线（2026-11：主人觉得不自然，未在 actions.mjs 注册，菜单里不出现）。
+// 想恢复：把 GESTURES / GESTURE_TARGETS / ACTIONS 里对应的条目加回去即可。
+export function sampleStretchMotion(progress) {
+  const p = clamp01(progress);
+  if (p <= 0 || p >= 1) return gestureRestPose();
+
+  const raise = smootherstep(clamp01(p / 0.3));
+  const lower = smootherstep(clamp01((1 - p) / 0.32));
+  const lift = Math.min(raise, lower);
+  // 拉伸脉冲：手张开到位后再往前上方"够"一下，然后慢慢收回
+  const reach =
+    smootherstep(clamp01((p - 0.28) / 0.24)) * smootherstep(clamp01((0.86 - p) / 0.26));
+  const breath = Math.sin((p - 0.2) * Math.PI * 2 * 1.1);
+
+  return {
+    weight: lift,
+    shoulderR: 0.15 * lift,
+    shoulderL: 0.15 * lift,
+    targetXOffset: -0.14 * reach + 0.04 * breath * reach,
+    targetYOffset: 0.34 * reach + 0.04 * breath * reach,
+    targetZOffset: 0.12 * reach,
+    targetXOffsetL: 0.14 * reach - 0.04 * breath * reach,
+    targetYOffsetL: 0.34 * reach + 0.04 * breath * reach,
+    targetZOffsetL: 0.12 * reach,
+    headX: -0.16 * lift,
+    headY: 0.015 * breath * reach,
+    headZ: 0.02 * breath * reach,
+    bodyX: -0.14 * lift,
+    bodyZ: 0.015 * breath * reach,
+    upperY: 0.05 * breath * reach,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 拍手鼓掌：双手收到胸前中线，按节拍开合三次
+// ---------------------------------------------------------------------------
+
+export function sampleClapMotion(progress) {
+  const p = clamp01(progress);
+  if (p <= 0 || p >= 1) return gestureRestPose();
+
+  const raise = smootherstep(clamp01(p / 0.2));
+  const lower = smootherstep(clamp01((1 - p) / 0.22));
+  const lift = Math.min(raise, lower);
+  // 三次清楚的拍手：0 分开、1 合掌
+  const beat = Math.sin(clamp01((p - 0.2) / 0.58) * Math.PI * 2 * 3);
+  const close = Math.max(0, beat);
+  // 合掌收到 ±0.35（两只手腕相隔 0.7），指尖不会插到一起
+  const meet = 0.5 * lift * (0.1 + 0.9 * close);
+
+  return {
+    weight: lift,
+    shoulderR: 0.05 * lift,
+    shoulderL: 0.05 * lift,
+    targetXOffset: meet,
+    targetYOffset: 0.06 * lift + 0.04 * close * lift,
+    targetZOffset: 0.04 * lift,
+    targetXOffsetL: -meet,
+    targetYOffsetL: 0.06 * lift + 0.04 * close * lift,
+    targetZOffsetL: 0.04 * lift,
+    headX: 0.035 * close * lift,
+    headY: 0.012 * close * lift,
+    headZ: -0.02 * lift,
+    bodyX: 0.015 * lift,
+    bodyZ: 0,
+    upperY: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 比心：双手抬到下巴前合拢成心形，轻轻往前送一下
+// ---------------------------------------------------------------------------
+
+// 已下线：手指在 IK 下无法控制腕部朝向，两只手做不出"指尖相碰"的心形。恢复方式同上。
+export function sampleHeartMotion(progress) {
+  const p = clamp01(progress);
+  if (p <= 0 || p >= 1) return gestureRestPose();
+
+  const raise = smootherstep(clamp01(p / 0.28));
+  const lower = smootherstep(clamp01((1 - p) / 0.3));
+  const lift = Math.min(raise, lower);
+  // 先合拢，再整体往前送一下（心形的"递出去"）
+  const gather = smootherstep(clamp01((p - 0.18) / 0.3));
+  const pulse = Math.sin(clamp01((p - 0.34) / 0.36) * Math.PI);
+
+  return {
+    weight: lift,
+    shoulderR: 0.06 * lift,
+    shoulderL: 0.06 * lift,
+    targetXOffset: 0.1 * lift * gather + 0.03 * pulse,
+    targetYOffset: 0.05 * lift + 0.03 * pulse,
+    targetZOffset: 0.06 * lift + 0.06 * pulse,
+    targetXOffsetL: -0.1 * lift * gather - 0.03 * pulse,
+    targetYOffsetL: 0.05 * lift + 0.03 * pulse,
+    targetZOffsetL: 0.06 * lift + 0.06 * pulse,
+    headX: 0.015 * lift,
+    headY: 0.04 * lift,
+    headZ: -0.09 * lift,
+    bodyX: 0.008 * lift,
+    bodyZ: 0.025 * Math.sin(p * Math.PI * 2) * lift,
+    upperY: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 鞠躬（身体类）：上身折下去、头跟着低、膝盖轻点一下再起身。
+// 手不做 IK——手臂本来就挂在躯干下面，弯腰时会自然跟下去，不会插进裙子。
+// ---------------------------------------------------------------------------
+
+export function sampleBowMotion(progress) {
+  const p = clamp01(progress);
+  const rest = bodyRestPose();
+  if (p <= 0 || p >= 1) return rest;
+
+  // 0.26 折下去，中间停住，最后 0.34 起身（起身比弯腰慢一点，像在致意）
+  const down = smootherstep(clamp01(p / 0.26));
+  const up = smootherstep(clamp01((1 - p) / 0.34));
+  const bend = Math.min(down, up);
+  // 停住的时候不是死帧，留一点呼吸
+  const settle = Math.sin(clamp01((p - 0.26) / 0.4) * Math.PI) * 0.012;
+
+  const pose = {
+    ...rest,
+    bodyX: 0.34 * bend + settle,
+    headX: 0.13 * bend,
+    upperY: -0.02 * bend,
+    legR: 0.05 * bend,
+    legL: 0.05 * bend,
+    kneeR: -0.16 * bend,
+    kneeL: -0.16 * bend,
+    footR: 0.05 * bend,
+    footL: 0.05 * bend,
+    armR: -0.14 * bend,
+    armL: -0.14 * bend,
+    elbowR: 0.2 * bend,
+    elbowL: 0.2 * bend,
+  };
+  pose.centerY = plantedCenterY(pose.legR, pose.kneeR, pose.legL, pose.kneeL);
+  return pose;
+}
+
+// ---------------------------------------------------------------------------
+// 身体类动作通道表：与 stompRestPose() 同名词汇，多出 air / armZR / armZL /
+// armOpen（air 只参与 centerY 计算，不直接驱动骨骼）。
+// ---------------------------------------------------------------------------
+
+export const bodyRestPose = () => ({
+  centerX: 0,
+  centerY: 0,
+  air: 0,
+  bodyX: 0,
+  bodyZ: 0,
+  headX: 0,
+  headY: 0,
+  headZ: 0,
+  upperY: 0,
+  lowerY: 0,
+  legR: 0,
+  legL: 0,
+  legRZ: 0,
+  legLZ: 0,
+  legRX: 0,
+  legRY: 0,
+  legLX: 0,
+  legLY: 0,
+  kneeR: 0,
+  kneeL: 0,
+  ankleR: 0,
+  ankleL: 0,
+  footR: 0,
+  footL: 0,
+  armR: 0,
+  armL: 0,
+  armZR: 0,
+  armZL: 0,
+  elbowR: 0,
+  elbowL: 0,
+  armOpen: 0,
+  shoulderR: 0,
+  shoulderL: 0,
+  // 双手 IK 接管权重（0 = 纯手臂欧拉角，1 = 完全按手部目标点解算）
+  handW: 0,
+  handDY: 0,
+  handDZ: 0,
+  impact: 0,
+});
+
+// ---------------------------------------------------------------------------
+// 原地跳：下蹲蓄力 → 蹬地起跳 → 空中收腿 → 落地屈膝卸力 → 起身回正
+// 起跳前手臂先往后摆、腾空时张开，落地时手臂往前压，重心才像被抛起来。
+// ---------------------------------------------------------------------------
+
+// 已下线：主人觉得大臂僵硬。恢复方式同上（记得同时恢复 BODY_HANDS.jump）。
+export function sampleJumpMotion(progress) {
+  const p = clamp01(progress);
+  const rest = bodyRestPose();
+  if (p <= 0 || p >= 1) return rest;
+
+  const crouch = {
+    ...rest,
+    bodyX: 0.2,
+    headX: -0.05,
+    legR: 0.32,
+    legL: 0.32,
+    kneeR: -0.92,
+    kneeL: -0.92,
+    footR: 0.3,
+    footL: 0.3,
+    armR: -0.34,
+    armL: -0.34,
+    armZR: 0.12,
+    armZL: -0.12,
+    elbowR: 0.3,
+    elbowL: 0.3,
+  };
+  const launch = {
+    ...rest,
+    bodyX: -0.08,
+    headX: -0.03,
+    legR: 0.04,
+    legL: 0.04,
+    kneeR: -0.06,
+    kneeL: -0.06,
+    footR: 0.3,
+    footL: 0.3,
+    elbowR: 0.5,
+    elbowL: 0.5,
+    handW: 0.4,
+    handDY: 0.05,
+    shoulderR: 0.08,
+    shoulderL: 0.08,
+    air: 0.08,
+  };
+  const apex = {
+    ...rest,
+    bodyX: -0.05,
+    headX: 0.03,
+    legR: 0.45,
+    legL: 0.45,
+    kneeR: -1.05,
+    kneeL: -1.05,
+    footR: 0.32,
+    footL: 0.32,
+    handW: 1,
+    handDY: 0.45,
+    handDZ: -0.08,
+    shoulderR: 0.18,
+    shoulderL: 0.18,
+    air: 1.25,
+  };
+  const fall = {
+    ...rest,
+    bodyX: 0.02,
+    headX: 0.05,
+    legR: 0.16,
+    legL: 0.16,
+    kneeR: -0.26,
+    kneeL: -0.26,
+    footR: -0.04,
+    footL: -0.04,
+    elbowR: 0.35,
+    elbowL: 0.35,
+    handW: 0.5,
+    handDY: 0.2,
+    air: 0.1,
+  };
+  const land = {
+    ...rest,
+    bodyX: 0.18,
+    headX: 0.1,
+    legR: 0.3,
+    legL: 0.3,
+    kneeR: -0.78,
+    kneeL: -0.78,
+    footR: 0.2,
+    footL: 0.2,
+    armR: -0.22,
+    armL: -0.22,
+    elbowR: 0.5,
+    elbowL: 0.5,
+    armOpen: 0.12,
+  };
+
+  let pose;
+  if (p < 0.16) pose = mixPose(rest, crouch, smootherstep(p / 0.16));
+  else if (p < 0.2) pose = { ...crouch };
+  else if (p < 0.28) pose = mixPose(crouch, launch, easeInCubic((p - 0.2) / 0.08));
+  else if (p < 0.4) pose = mixPose(launch, apex, easeOutCubic((p - 0.28) / 0.12));
+  else if (p < 0.6) pose = mixPose(apex, fall, easeInCubic((p - 0.4) / 0.2));
+  else if (p < 0.72) pose = mixPose(fall, land, easeOutCubic((p - 0.6) / 0.12));
+  else pose = mixPose(land, rest, smootherstep((p - 0.72) / 0.28));
+
+  // 重心 = 腿部几何决定的高度 + 腾空高度；落地屈膝时自然沉下去
+  pose.centerY = plantedCenterY(pose.legR, pose.kneeR, pose.legL, pose.kneeL) + pose.air;
+  pose.impact = gauss(p, 0.665, 0.03);
+  pose.headX += 0.07 * pose.impact;
+  pose.upperY -= 0.045 * pose.impact;
+  return pose;
+}
+
+// ---------------------------------------------------------------------------
+// 摇摆舞步：重心左右倒替，抬起的膝盖跟着节拍屈伸，手臂一上一下
+// 用相位包络把周期动作收在 0/1 两端，所以它和离散动作之间不会跳变。
+// ---------------------------------------------------------------------------
+
+export function sampleDanceMotion(progress) {
+  const p = clamp01(progress);
+  const rest = bodyRestPose();
+  if (p <= 0 || p >= 1) return rest;
+
+  const w = phaseEnvelope(p, 0.12, 0.86);
+  const beat = p * Math.PI * 2 * 3.4;
+  const sway = Math.sin(beat);
+  const supportR = Math.max(0, sway);
+  const supportL = Math.max(0, -sway);
+
+  const legR = (0.05 + 0.14 * supportL) * w;
+  const legL = (0.05 + 0.14 * supportR) * w;
+  const kneeR = -(0.12 + 0.34 * supportL) * w;
+  const kneeL = -(0.12 + 0.34 * supportR) * w;
+
+  const pose = {
+    ...rest,
+    centerX: sway * 0.12 * w,
+    bodyX: Math.sin(beat * 2) * 0.03 * w,
+    bodyZ: -sway * 0.1 * w,
+    headX: Math.sin(beat * 2 + 0.6) * 0.035 * w,
+    headY: sway * 0.1 * w,
+    headZ: -sway * 0.05 * w,
+    upperY: -sway * 0.12 * w,
+    lowerY: sway * 0.08 * w,
+    legR,
+    legL,
+    kneeR,
+    kneeL,
+    legRZ: -sway * 0.04 * w,
+    legLZ: -sway * 0.04 * w,
+    footR: (0.1 + 0.14 * supportL) * w,
+    footL: (0.1 + 0.14 * supportR) * w,
+    // 双手叉腰（手位交给 IK），胯部跟着节拍左右顶
+    handW: w,
+    handDY: 0.03 * Math.sin(beat * 2) * w,
+    handDZ: 0.02 * Math.sin(beat * 2 + 1) * w,
+  };
+  pose.centerY = plantedCenterY(legR, kneeR, legL, kneeL) + Math.abs(sway) * 0.05 * w;
+  return pose;
+}
+

@@ -6,8 +6,11 @@ dist/
 
 # Nested repos / tooling artifacts
 gitee-repo/
+.worktrees/
 .workbuddy/
 .superpowers/
+tools/qa/
+tools/demo/
 NVIDIA Corporation/
 _backup_loader_20260824/
 
