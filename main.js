@@ -6,6 +6,27 @@ const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const { advanceWithinWorkArea } = require("./window-motion.cjs");
 
+// ---------- 打包后没有控制台 ----------
+// 打包版被带管道的父进程启动（批处理窗口关闭、外部工具接管输出）后，stdout 会变成断开的管道，
+// 任何 console 写入都会抛 EPIPE 直接打挂主进程（electron-updater 检查更新时就会 console.info）。
+// 这里把输出兜住：吞掉流的 error，并给 console 加一层 try/catch。
+if (app.isPackaged) {
+  for (const stream of [process.stdout, process.stderr]) {
+    if (stream && typeof stream.on === "function") stream.on("error", () => {});
+  }
+  for (const level of ["log", "info", "warn", "error", "debug", "trace"]) {
+    const original = typeof console[level] === "function" ? console[level].bind(console) : null;
+    if (!original) continue;
+    console[level] = (...args) => {
+      try {
+        original(...args);
+      } catch {
+        /* stdout 断了就静默丢弃 */
+      }
+    };
+  }
+}
+
 // ---------- 自动更新配置 ----------
 // 默认从 GitHub Releases 拉取更新（latest.yml + 安装包）。
 // 设置环境变量 TAFFY_UPDATE_URL 可改用自定义 generic 源；TAFFY_UPDATE=0 关闭自动更新。
@@ -28,6 +49,9 @@ if (useAutoUpdate) {
   }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // electron-updater 默认拿 console 当日志器，打包版里每次 checkForUpdates 都会写 stdout；
+  // 关掉它，避免再去碰可能已经断开的管道。
+  autoUpdater.logger = null;
 
   autoUpdater.on("update-available", (info) => {
     updateAvailableVersion = info.version;
