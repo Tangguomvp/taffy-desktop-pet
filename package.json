@@ -9,7 +9,8 @@
     "test": "node --test tests/*.test.mjs",
     "preview:actions": "electron tools/capture_actions.js",
     "dist": "electron-builder --win nsis",
-    "release": "electron-builder --win nsis --publish always"
+    "release": "node tools/release.mjs",
+    "release:dry": "node tools/release.mjs --dry-run"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

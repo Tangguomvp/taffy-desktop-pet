@@ -62,8 +62,10 @@
 ```bash
 npm install
 npm start        # 本地运行
+npm test         # 运行测试（39 项）
 npm run dist     # 打包 Windows 安装包（NSIS）
-npm test         # 运行测试
+npm run release  # 一键发版：升版本→打包→提交推送→打 tag→建 Release（默认草稿）
+npm run release:dry  # 只打印发版计划，不改文件
 ```
 
 技术栈：Electron 35 · Three.js 0.170 · electron-builder · electron-updater
