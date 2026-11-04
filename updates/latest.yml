@@ -1,11 +1,11 @@
 # 1.0.0–1.0.2 客户端会请求：
 # https://gitee.com/tangguotang/eternal-nest-taffy-pet-table/raw/master/updates/latest.yml
 # 发新版时同步改 version / url / sha512 / size。安装包仍托管在 GitHub Releases。
-version: 1.0.6
+version: 1.0.7
 files:
-  - url: https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.6/Taffy-Desktop-Pet-Setup-1.0.6.exe
-    sha512: H0YcZqt2zclZ2QcnmVfZ8nYuONITey/t7w/PguCF2+fkLhj5O/INYhkavqz/01W4xYxp6LYQIpIbWa0AlUOMeQ==
-    size: 149582375
-path: Taffy-Desktop-Pet-Setup-1.0.6.exe
-sha512: H0YcZqt2zclZ2QcnmVfZ8nYuONITey/t7w/PguCF2+fkLhj5O/INYhkavqz/01W4xYxp6LYQIpIbWa0AlUOMeQ==
-releaseDate: '2026-11-02T05:42:48.157Z'
+  - url: https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.7/Taffy-Desktop-Pet-Setup-1.0.7.exe
+    sha512: oYEmkFhzR1agEh1Xut3aVVSPN8thGazcyrpXsEyJhaxJXLc+fnh62UJwYZ6vJRLEB5xQHp/7Gap85EeKEDhr2Q==
+    size: 149583213
+path: Taffy-Desktop-Pet-Setup-1.0.7.exe
+sha512: oYEmkFhzR1agEh1Xut3aVVSPN8thGazcyrpXsEyJhaxJXLc+fnh62UJwYZ6vJRLEB5xQHp/7Gap85EeKEDhr2Q==
+releaseDate: '2026-11-04T01:36:27.546Z'
