@@ -52,8 +52,10 @@
 
 | 版本 | 说明 | 下载 |
 | --- | --- | --- |
-| v1.0.4 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.4.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.4/Taffy-Desktop-Pet-Setup-1.0.4.exe) |
+| v1.0.8 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.8.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.8/Taffy-Desktop-Pet-Setup-1.0.8.exe) |
+| v1.0.7 | 上一版 | [Taffy-Desktop-Pet-Setup-1.0.7.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.7/Taffy-Desktop-Pet-Setup-1.0.7.exe) |
 
+> 已安装 1.0.7 / 更早版本的用户：启动后会自动检测到 v1.0.8 并后台下载，退出时自动安装。
 ## 使用
 
 双击 `start.bat` 启动，详细操作见 [使用说明.txt](使用说明.txt)。
