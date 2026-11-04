@@ -139,8 +139,9 @@
           }
         }
       } else if (spec.kind === "walk" || spec.kind === "stomp" || spec.kind === "body") {
-        if (!moved("右足D", "右足", "右腿", "RightLeg")) {
-          throw new Error(outfit + "/" + spec.id + ": legs did not move");
+        // 身体动作不一定动腿（点头/摇头/歪头只动头和躯干），但必须动到点什么
+        if (!moved("右足D", "右足", "右腿", "RightLeg") && !moved("頭", "头", "Head")) {
+          throw new Error(outfit + "/" + spec.id + ": nothing moved");
         }
       } else if (spec.kind === "spin") {
         if (Math.abs(mesh.rotation.y) < 1e-3) throw new Error(outfit + "/" + spec.id + ": model did not turn");

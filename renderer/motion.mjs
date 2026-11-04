@@ -662,6 +662,8 @@ export function sampleStretchMotion(progress) {
 // 拍手鼓掌：双手收到胸前中线，按节拍开合三次
 // ---------------------------------------------------------------------------
 
+// 已下线（2026-11：主人觉得不自然，未在 actions.mjs 注册，菜单里不出现）。
+// 想恢复：把 GESTURES / GESTURE_TARGETS / ACTIONS 里的条目加回去即可。
 export function sampleClapMotion(progress) {
   const p = clamp01(progress);
   if (p <= 0 || p >= 1) return gestureRestPose();
@@ -767,6 +769,76 @@ export function sampleBowMotion(progress) {
 }
 
 // ---------------------------------------------------------------------------
+// 点头答应：两下点头，身体跟着轻轻一沉（屈膝而不是把重心往地里压）
+// ---------------------------------------------------------------------------
+
+export function sampleNodMotion(progress) {
+  const p = clamp01(progress);
+  const rest = bodyRestPose();
+  if (p <= 0 || p >= 1) return rest;
+
+  const env = phaseEnvelope(p, 0.14, 0.86);
+  const beat = Math.max(0, Math.sin(clamp01((p - 0.14) / 0.72) * Math.PI * 2 * 2));
+  const pose = { ...rest };
+  pose.headX = 0.3 * beat * env;
+  pose.headZ = -0.015 * env;
+  pose.bodyX = 0.04 * beat * env;
+  pose.upperY = 0.02 * beat * env;
+  pose.legR = 0.04 * beat * env;
+  pose.legL = 0.04 * beat * env;
+  pose.kneeR = -0.07 * beat * env;
+  pose.kneeL = -0.07 * beat * env;
+  pose.footR = 0.025 * beat * env;
+  pose.footL = 0.025 * beat * env;
+  pose.centerY = plantedCenterY(pose.legR, pose.kneeR, pose.legL, pose.kneeL);
+  return pose;
+}
+
+// ---------------------------------------------------------------------------
+// 摇头拒绝：左右摆头，肩带反向带一点
+// ---------------------------------------------------------------------------
+
+export function sampleShakeMotion(progress) {
+  const p = clamp01(progress);
+  const rest = bodyRestPose();
+  if (p <= 0 || p >= 1) return rest;
+
+  const env = phaseEnvelope(p, 0.12, 0.88);
+  const beat = Math.sin(clamp01((p - 0.12) / 0.76) * Math.PI * 2 * 2.6);
+  const pose = { ...rest };
+  pose.headY = 0.34 * beat * env;
+  pose.headZ = -0.05 * beat * env;
+  pose.upperY = -0.09 * beat * env;
+  pose.bodyZ = -0.04 * beat * env;
+  pose.armZR = -0.1 * env;
+  pose.armZL = 0.1 * env;
+  return pose;
+}
+
+// ---------------------------------------------------------------------------
+// 歪头卖萌：头慢慢歪到位，肩一耸、重心偏一点，停一会儿再回正
+// ---------------------------------------------------------------------------
+
+export function sampleTiltMotion(progress) {
+  const p = clamp01(progress);
+  const rest = bodyRestPose();
+  if (p <= 0 || p >= 1) return rest;
+
+  const env = phaseEnvelope(p, 0.22, 0.78);
+  const drift = Math.sin(p * Math.PI * 2 * 0.8);
+  const pose = { ...rest };
+  pose.headZ = 0.24 * env;
+  pose.headY = 0.07 * env + 0.02 * drift * env;
+  pose.headX = 0.02 * env;
+  pose.shoulderR = 0.07 * env;
+  pose.shoulderL = 0.03 * env;
+  pose.bodyZ = 0.05 * env;
+  pose.centerX = 0.03 * env;
+  pose.upperY = 0.03 * env;
+  return pose;
+}
+
+// ---------------------------------------------------------------------------
 // 身体类动作通道表：与 stompRestPose() 同名词汇，多出 air / armZR / armZL /
 // armOpen（air 只参与 centerY 计算，不直接驱动骨骼）。
 // ---------------------------------------------------------------------------
@@ -807,6 +879,8 @@ export const bodyRestPose = () => ({
   shoulderL: 0,
   // 双手 IK 接管权重（0 = 纯手臂欧拉角，1 = 完全按手部目标点解算）
   handW: 0,
+  handDX: 0,
+  handDXL: 0,
   handDY: 0,
   handDZ: 0,
   impact: 0,

@@ -3,8 +3,10 @@
 import {
   bodyRestPose,
   sampleBowMotion,
-  sampleClapMotion,
   sampleDanceMotion,
+  sampleNodMotion,
+  sampleShakeMotion,
+  sampleTiltMotion,
   sampleTouchFaceMotion,
   sampleWaveMotion,
 } from "./motion.mjs";
@@ -13,7 +15,6 @@ import {
 export const GESTURES = {
   touchFace: { duration: 3600, arms: "right" },
   wave: { duration: 2600, arms: "right" },
-  clap: { duration: 2600, arms: "both" },
 };
 
 // 手部 IK 目标（模型空间坐标）。左右分开写：对称手势两只手不能共用一个点。
@@ -28,8 +29,6 @@ export const GESTURE_TARGETS = {
   touchFace: { R: { x: -0.5, y: 10.8, z: 1.85 } },
   // 招手：手立在脸侧偏前，z 拉到 2.4 才不会被侧发吃掉；离肩别太远，肘才弯得住
   wave: { R: { x: -2.45, y: 11.15, z: 2.4 } },
-  // 拍手：双手在胸前开合，最近也留 0.7 的手腕间距，指尖不会交叉
-  clap: { R: { x: -0.85, y: 9.3, z: 2.6 }, L: { x: 0.85, y: 9.3, z: 2.6 } },
 };
 
 // 手势静止态：没有任何手势在播放时的零值，取代原来的 sampleTouchFaceMotion(1)
@@ -54,7 +53,6 @@ export const GESTURE_REST = Object.freeze({
 const GESTURE_SAMPLERS = {
   touchFace: sampleTouchFaceMotion,
   wave: sampleWaveMotion,
-  clap: sampleClapMotion,
 };
 
 // 身体类动作也可以接管双手（IK）。手位同样是按网格实测定的：
@@ -76,6 +74,10 @@ export const BODY_REST = bodyRestPose();
 export const BODY_ACTIONS = {
   dance: { duration: 4400, sampler: sampleDanceMotion },
   bow: { duration: 2400, sampler: sampleBowMotion },
+  // 只动头/躯干的三连（聊天气泡里"答应/拒绝/卖萌"用得上）
+  nod: { duration: 1400, sampler: sampleNodMotion },
+  shake: { duration: 1600, sampler: sampleShakeMotion },
+  tilt: { duration: 2400, sampler: sampleTiltMotion },
 };
 
 // 菜单顺序：常用互动在前，原有点击/悬停动作在后
@@ -83,8 +85,10 @@ export const ACTIONS = [
   { id: "idle", kind: "idle", name: "自然待机", line: "先安静待机一会儿喵。" },
   { id: "wave", kind: "gesture", gesture: "wave", name: "招手打招呼", emotion: "happy", line: "主人好呀，塔菲在这里喵！" },
   { id: "dance", kind: "body", action: "dance", name: "摇摆舞步", emotion: "star", line: "跟着节奏摇摆起来喵！" },
-  { id: "clap", kind: "gesture", gesture: "clap", name: "拍手鼓掌", emotion: "happy", line: "鼓掌鼓掌喵！" },
   { id: "bow", kind: "body", action: "bow", name: "鞠躬", emotion: "smile", line: "谢谢雏草姬支持喵！" },
+  { id: "nod", kind: "body", action: "nod", name: "点头答应", emotion: "smile", line: "好喵，塔菲记住了！" },
+  { id: "shake", kind: "body", action: "shake", name: "摇头拒绝", emotion: "tease", line: "不要就是不要喵～" },
+  { id: "tilt", kind: "body", action: "tilt", name: "歪头卖萌", emotion: "omega", line: "嗯？主人刚才说什么喵？" },
   { id: "spin", kind: "spin", name: "张臂转圈软着陆" },
   { id: "touch", kind: "gesture", gesture: "touchFace", name: "害羞摸脸", emotion: "blush", line: "别、别一直盯着看喵…" },
   { id: "stomp", kind: "stomp", name: "跺脚" },

@@ -19,6 +19,8 @@
     import * as THREE from "three";
     import { MMDLoader } from "../renderer/vendor/jsm/loaders/MMDLoader.js";
     import { actionById } from "../renderer/actions.mjs";
+
+    const resolveSpec = (id) => actionById(id);
     import { applyMotionPose, sampleActionPose } from "../renderer/pose.mjs";
     import { pickByAliasPriority, setLegRig } from "../renderer/motion.mjs";
 
@@ -67,7 +69,7 @@
     function composeFrame(id) {
       ctx.clearRect(0, 0, W, H);
       ctx.drawImage(canvas, 0, 0, W, H);
-      const spec = actionById(id);
+      const spec = resolveSpec(id);
       const text = spec ? spec.name : "";
       if (!text) return;
       ctx.font = "600 26px 'Segoe UI', 'Microsoft YaHei', sans-serif";
@@ -86,7 +88,7 @@
 
     function drawFrame(id, tMs) {
       if (!mesh) return false;
-      const spec = actionById(id) || { id: "idle", kind: "idle", name: "自然待机" };
+      const spec = resolveSpec(id) || { id: "idle", kind: "idle", name: "自然待机" };
       applyMotionPose(mesh, sampleActionPose(spec, tMs / 1000, tMs / 1000));
       renderer.render(scene, camera);
       composeFrame(id);
@@ -95,7 +97,7 @@
 
     window.__render = (id, tMs) => drawFrame(id, tMs);
     window.__label = (id) => {
-      const spec = actionById(id);
+      const spec = resolveSpec(id);
       document.getElementById("label").textContent = spec ? spec.name : "";
       return true;
     };
@@ -104,7 +106,7 @@
     window.__renderAll = async (list) => {
       const out = [];
       for (const [id, durMs] of list) {
-        const spec = actionById(id);
+        const spec = resolveSpec(id);
         document.getElementById("label").textContent = spec ? spec.name : "";
         const frames = Math.max(1, Math.round((durMs / 1000) * FPS));
         for (let f = 0; f < frames; f++) {

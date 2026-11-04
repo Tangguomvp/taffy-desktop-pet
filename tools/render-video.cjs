@@ -11,15 +11,17 @@ const ACTIONS = [
   ["idle", 2000],
   ["wave", 2900],
   ["dance", 4700],
-  ["clap", 2900],
   ["bow", 2500],
+  ["nod", 1700],
+  ["shake", 1900],
+  ["tilt", 2700],
   ["spin", 1800],
   ["touch", 3900],
   ["stomp", 1300],
   ["walk", 2300],
 ];
 const OUT_DIR = path.join(__dirname, "demo", ".frames");
-const OUT_MP4 = path.join(__dirname, "demo", "taffy-actions-9.mp4");
+const OUT_MP4 = path.join(__dirname, "demo", "taffy-actions-11.mp4");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(fn, timeoutMs, label) {

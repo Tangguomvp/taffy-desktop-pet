@@ -49,8 +49,10 @@ app.whenReady().then(async () => {
     const plan = [
       ["wave", [700, 1300, 1900]],
       ["dance", [900, 1800, 3000]],
-      ["clap", [600, 1300, 2000]],
       ["bow", [600, 1200, 1900]],
+      ["nod", [400, 800, 1200]],
+      ["shake", [400, 900, 1400]],
+      ["tilt", [600, 1200, 2000]],
     ];
     for (const [id, moments] of plan) {
       await win.webContents.executeJavaScript(

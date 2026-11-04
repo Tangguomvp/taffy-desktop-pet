@@ -10,11 +10,13 @@ import {
   pickByAliasPriority,
   phaseEnvelope,
   sampleBowMotion,
-  sampleClapMotion,
   sampleDanceMotion,
   sampleIdleMotion,
+  sampleNodMotion,
+  sampleShakeMotion,
   sampleSpinMotion,
   sampleStompMotion,
+  sampleTiltMotion,
   sampleTouchFaceMotion,
   sampleWalkMotion,
   sampleWaveMotion,
@@ -294,11 +296,13 @@ test("groundedCenterY maps leg geometry onto floor height", () => {
 
 const gestureSamplers = {
   wave: sampleWaveMotion,
-  clap: sampleClapMotion,
 };
 const bodySamplers = {
   dance: sampleDanceMotion,
   bow: sampleBowMotion,
+  nod: sampleNodMotion,
+  shake: sampleShakeMotion,
+  tilt: sampleTiltMotion,
 };
 
 const footClearance = (pose) => {
@@ -356,16 +360,41 @@ test("waving swings the hand both ways while the head stays calm", () => {
   assert.ok(Math.abs(hold.headZ) > 0.04 && Math.abs(hold.headZ) < 0.12, "头只是轻轻偏一下");
 });
 
-test("clapping meets at the body midline and opens again", () => {
-  const overlaps = [];
-  for (let i = 0; i <= 60; i++) overlaps.push(sampleClapMotion(0.2 + i * 0.01));
-  const meeting = Math.max(...overlaps.map((pose) => pose.targetXOffset));
-  assert.ok(meeting > 0.2, "右手要收到身体中线");
-  for (const pose of overlaps) {
-    near(pose.targetXOffsetL, -pose.targetXOffset, 1e-9, "拍手要左右对称");
+test("nodding dips the head twice while the feet stay planted", () => {
+  const samples = [];
+  for (let i = 0; i <= 200; i++) samples.push(sampleNodMotion(i / 200));
+  const heads = samples.map((pose) => pose.headX);
+  let peaks = 0;
+  for (let i = 1; i < heads.length - 1; i++) {
+    if (heads[i] > heads[i - 1] && heads[i] >= heads[i + 1] && heads[i] > 0.08) peaks += 1;
   }
-  const min = Math.min(...overlaps.map((pose) => pose.targetXOffset));
-  assert.ok(min < meeting - 0.2, "手要分开再合上");
+  assert.ok(peaks >= 2, "点头要有两下，实际 " + peaks + " 下");
+  assert.ok(Math.max(...heads) > 0.2, "头要真的低下去");
+  for (const pose of samples) {
+    assert.ok(footClearance(pose) >= -1e-6, "点头时脚不能踩进地里");
+  }
+});
+
+test("shaking sweeps the head both ways several times", () => {
+  const heads = [];
+  for (let i = 0; i <= 120; i++) heads.push(sampleShakeMotion(i / 120).headY);
+  let flips = 0;
+  for (let i = 1; i < heads.length; i++) {
+    if (Math.sign(heads[i]) !== Math.sign(heads[i - 1])) flips += 1;
+  }
+  assert.ok(flips >= 4, "摇头要来回摆几次，实际换向 " + flips + " 次");
+  assert.ok(Math.max(...heads) > 0.2 && Math.min(...heads) < -0.2, "两边都要摆到位");
+});
+
+test("head tilt settles and holds without moving the legs", () => {
+  const mid = sampleTiltMotion(0.5);
+  assert.ok(mid.headZ > 0.2, "头要歪到位");
+  assert.ok(mid.shoulderR > 0.05, "歪头时肩要跟着耸一点");
+  near(mid.legR, 0);
+  near(mid.kneeR, 0);
+  // 歪过去是慢慢加的，不是一下弹到位
+  const early = sampleTiltMotion(0.12);
+  assert.ok(mid.headZ > early.headZ, "歪头要慢慢加过去");
 });
 
 test("bow folds the torso forward, dips the knees, and keeps arms relaxed", () => {
@@ -418,7 +447,7 @@ test("hand targets stay outside the body surface instead of clipping into it", (
 });
 
 test("two-handed gestures keep the wrists far enough apart that the hands cannot cross", () => {
-  for (const name of ["clap"]) {
+  for (const name of []) {
     const base = GESTURE_TARGETS[name];
     let closest = Infinity;
     for (let i = 0; i <= 100; i++) {
@@ -479,7 +508,7 @@ test("dancing keeps the feet on or above the floor at every phase", () => {
 test("action registry stays in sync with the curves and the menu", () => {
   const ids = ACTIONS.map((spec) => spec.id);
   assert.equal(new Set(ids).size, ids.length, "动作 id 不能重复");
-  const expected = ["idle", "wave", "dance", "clap", "bow", "spin", "touch", "stomp", "walk"];
+  const expected = ["idle", "wave", "dance", "bow", "nod", "shake", "tilt", "spin", "touch", "stomp", "walk"];
   for (const id of expected) assert.ok(ids.includes(id), "菜单缺少动作 " + id);
   for (const spec of ACTIONS) {
     assert.ok(spec.name && spec.name.length > 0, spec.id + " 缺少中文名");

@@ -135,14 +135,26 @@ export function applyMotionPose(mesh, pose) {
   const weight = gestureName ? gesture.weight : 0;
   const solved = gestureName ? resolveGesture(gestureName, gesture) : { R: null, L: null };
 
-  // 身体动作（跳/舞）的手位 IK，和手势走同一条混合链
-  const bodyHandSpec = pose.spec && pose.spec.kind === "body" ? bodyHands(pose.spec.action) : null;
+  // 身体动作 / 候选动作 的手位 IK，和手势走同一条混合链
+  const bodyHandSpec =
+    pose.spec && pose.spec.hands
+      ? pose.spec.hands
+      : pose.spec && pose.spec.kind === "body"
+        ? bodyHands(pose.spec.action)
+        : null;
   const bodyHandW = bodyHandSpec ? Math.max(0, Math.min(1, body.handW || 0)) : 0;
+  // 对称偏移：R 用 handDX，L 默认取反，这样"两只手一起抬/一起摊"才对称
+  const handDX = body.handDX || 0;
+  const handDXL = body.handDXL != null ? body.handDXL : -handDX;
   const bodySolved =
     bodyHandSpec && bodyHandW > 0.001
       ? resolveHands(bodyHandSpec, {
+          targetXOffset: handDX,
+          targetXOffsetL: handDXL,
           targetYOffset: body.handDY || 0,
+          targetYOffsetL: body.handDY || 0,
           targetZOffset: body.handDZ || 0,
+          targetZOffsetL: body.handDZ || 0,
         })
       : { R: null, L: null };
 
@@ -206,8 +218,10 @@ export const PREVIEW_PHASES = {
   idle: 0,
   wave: 0.5,
   dance: 0.42,
-  clap: 0.42,
   bow: 0.45,
+  nod: 0.32,
+  shake: 0.31,
+  tilt: 0.5,
   spin: 0.55,
   touch: 0.5,
   stomp: 0.3,
