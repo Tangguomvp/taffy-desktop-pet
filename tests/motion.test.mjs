@@ -21,6 +21,7 @@ import {
   sampleWalkMotion,
   sampleWaveMotion,
 } from "../renderer/motion.mjs";
+import { parseChatReply } from "../renderer/chat-format.mjs";
 import {
   ACTIONS,
   BODY_ACTIONS,
@@ -64,6 +65,44 @@ test("phase envelope eases in, holds, and returns fully to rest", () => {
   near(phaseEnvelope(0.5), 1);
   near(phaseEnvelope(0.86), 0.5);
   near(phaseEnvelope(1), 0);
+});
+
+test("chat replies parse EMOTION and ACTION tags without leaking them into the text", () => {
+  const full = parseChatReply("EMOTION:happy\nACTION:nod\n好喵，塔菲记住了！");
+  assert.equal(full.emotionRaw, "happy");
+  assert.equal(full.action, "nod");
+  assert.equal(full.text, "好喵，塔菲记住了！");
+
+  // 只有 EMOTION（老格式）
+  const emotionOnly = parseChatReply("EMOTION:tease\n不要就是不要喵～");
+  assert.equal(emotionOnly.emotionRaw, "tease");
+  assert.equal(emotionOnly.action, "");
+  assert.equal(emotionOnly.text, "不要就是不要喵～");
+
+  // 只有 ACTION
+  const actionOnly = parseChatReply("ACTION:shake\n不行喵");
+  assert.equal(actionOnly.emotionRaw, "");
+  assert.equal(actionOnly.action, "shake");
+  assert.equal(actionOnly.text, "不行喵");
+
+  // 更老的 [happy] 前缀写法
+  const bracket = parseChatReply("[happy] 主人好呀喵");
+  assert.equal(bracket.emotionRaw, "happy");
+  assert.equal(bracket.text, "主人好呀喵");
+
+  // 全角冒号、大小写、同义词
+  assert.equal(parseChatReply("EMOTION：LOVE\nACTION：Yes\n贴贴喵").action, "nod");
+  assert.equal(parseChatReply("ACTION:refuse\n才不要喵").action, "shake");
+  assert.equal(parseChatReply("ACTION:confused\n嗯？什么喵").action, "tilt");
+
+  // none / 未知动作 都不播
+  assert.equal(parseChatReply("EMOTION:idle\nACTION:none\n待着喵").action, "");
+  assert.equal(parseChatReply("EMOTION:idle\nACTION:spin\n转圈喵").action, "");
+
+  // 没有任何标签：原文返回
+  const plain = parseChatReply("塔菲在喵");
+  assert.equal(plain.text, "塔菲在喵");
+  assert.equal(plain.action, "");
 });
 
 test("action arbitration prevents resets and gesture-spin overlap", () => {

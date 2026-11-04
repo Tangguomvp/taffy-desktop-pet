@@ -39,6 +39,8 @@
 | 跺脚 | 原有 | 1.0s |
 | 开始 / 停止走动 | 原有 | 持续 |
 
+聊天时她会按回复内容自动点头 / 摇头 / 歪头（回复里带 `ACTION:nod|shake|tilt|none` 标签，没有就不做动作）。
+
 手位（招手 / 叉腰）由手臂 IK 送到目标点，目标点是拿
 `tools/probe-surface.js` 量过模型网格表面才定的：脸前 `z≈2.0~2.6`、腰 `z≈1.4`、
 裙前 `z≈2.2`，而双马尾最宽 `|x|≈4.95`、手臂只有 `3.64`——所以手既举不过头顶，
@@ -50,10 +52,8 @@
 
 | 版本 | 说明 | 下载 |
 | --- | --- | --- |
-| v1.0.7 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.7.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.7/Taffy-Desktop-Pet-Setup-1.0.7.exe) |
-| v1.0.6 | 上一版 | [Taffy-Desktop-Pet-Setup-1.0.6.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.6/Taffy-Desktop-Pet-Setup-1.0.6.exe) |
+| v1.0.4 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.4.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.4/Taffy-Desktop-Pet-Setup-1.0.4.exe) |
 
-> 已安装 1.0.6 / 更早版本的用户：启动后会自动检测到 v1.0.7 并后台下载，退出时自动安装。
 ## 使用
 
 双击 `start.bat` 启动，详细操作见 [使用说明.txt](使用说明.txt)。

@@ -22,6 +22,7 @@ import {
   gestureMotion as sampleGestureMotion,
 } from "./actions.mjs";
 import { resolveGesture, resolveHands } from "./arm-ik.mjs";
+import { parseChatReply } from "./chat-format.mjs";
 
 const LINES = [
   { text: "关注塔菲谢谢喵。", emotion: "happy" },
@@ -158,9 +159,16 @@ const SYSTEM_PROMPT = `你是永雏塔菲（Taffy），一位来自1885年的天
 说话风格：句尾常用"喵"，自称"塔菲"，语气轻快俏皮，口语化、简短（一般30字以内），像和朋友发消息，不要用markdown、不要列点、不要长篇大论；可以偶尔提到发明、布丁、奶茶、直播、机械零件等话题。
 你必须按这个格式回复，不要解释格式：
 第一行：EMOTION:标签
-第二行起：台词
-标签只能选一个：happy,smile,wink,blush,surprised,angry,sad,love,star,tease,sleepy,shock,smug,cry,money,ciya,hachu,perro,glasses,omega,idle
-根据内容和心情选最贴切的表情。被夸奖用 happy/love/blush，被欺负用 angry/sad，深夜用 sleepy，开玩笑用 tease/smug，吃惊用 surprised/shock。`;
+第二行：ACTION:标签
+第三行起：台词
+EMOTION 只能选一个：happy,smile,wink,blush,surprised,angry,sad,love,star,tease,sleepy,shock,smug,cry,money,ciya,hachu,perro,glasses,omega,idle
+根据内容和心情选最贴切的表情。被夸奖用 happy/love/blush，被欺负用 angry/sad，深夜用 sleepy，开玩笑用 tease/smug，吃惊用 surprised/shock。
+ACTION 只能选一个：nod,shake,tilt,none
+点头答应/表示肯定用 nod；拒绝、不情愿、被逗的时候用 shake；疑惑、卖萌、没听清的时候用 tilt；其它情况写 none。
+例：
+EMOTION:happy
+ACTION:nod
+好喵，塔菲记住了！`;
 
 let chatOpen = false;
 let chatKeyMode = false;
@@ -652,6 +660,16 @@ function startBodyAction(name) {
 }
 
 // 统一动作入口：右键菜单、托盘、动作预览都走这里
+// 聊天联动：模型挑好头部小动作后在这里播（不抢台词气泡，也不改表情）
+function playChatAction(id) {
+  const spec = actionById(id);
+  if (!spec || spec.kind !== "body") return false;
+  if (!mesh || dragging) return false;
+  // 先把自动散步停掉，否则走路会挡住动作；别的离散动作正在演就让它演完
+  stopWalking(false);
+  return startBodyAction(spec.action);
+}
+
 function runAction(id) {
   const spec = actionById(id);
   if (!spec) return false;
@@ -722,15 +740,10 @@ function speak(text, name, ms = 3200) {
 }
 
 function parseEmotionReply(raw) {
-  const src = String(raw || "").trim();
-  const tagged = src.match(/EMOTION:\s*([A-Za-z_]+)/i);
-  if (tagged) {
-    const text = src.replace(/EMOTION:\s*[A-Za-z_]+\s*/i, "").trim();
-    return { emotion: normalizeEmotion(tagged[1]), text: text || src };
-  }
-  const bracket = src.match(/^\[([A-Za-z_]+)\]\s*([\s\S]*)$/);
-  if (bracket) return { emotion: normalizeEmotion(bracket[1]), text: bracket[2].trim() || src };
-  return { emotion: inferEmotion(src), text: src };
+  const parsed = parseChatReply(raw);
+  const text = parsed.text || String(raw || "").trim();
+  const emotion = parsed.emotionRaw ? normalizeEmotion(parsed.emotionRaw) : inferEmotion(text);
+  return { emotion, text, action: parsed.action };
 }
 
 function inferEmotion(text) {
@@ -908,6 +921,7 @@ async function sendChat() {
     chatHistory.push({ role: "assistant", content: parsed.text });
     if (chatHistory.length > 10) chatHistory = chatHistory.slice(-10);
     speak(parsed.text, parsed.emotion, 6000);
+    if (parsed.action) playChatAction(parsed.action);
     chatInputEl.focus();
   } else if (res && res.error === "no-key") {
     speak("还没有 API Key 喵，把 Key 贴进来发给塔菲就能聊天了。", "sad", 5000);
