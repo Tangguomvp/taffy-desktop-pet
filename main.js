@@ -41,7 +41,29 @@ function sendToRenderer(channel, data) {
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send(channel, data);
 }
 
+// 更新过程写到 userData/update.log：排查"检查更新失败/装了没反应"时看这个文件
+function updateLogPath() {
+  return path.join(app.getPath("userData"), "update.log");
+}
+function logUpdate(level, ...args) {
+  const text = args
+    .map((value) => {
+      if (value instanceof Error) return value.message;
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    })
+    .join(" ");
+  try {
+    fs.appendFileSync(updateLogPath(), "[" + new Date().toISOString() + "] " + level + " " + text + "\n");
+  } catch {}
+}
+
 if (useAutoUpdate) {
+  logUpdate("info", "startup", "version=" + app.getVersion(), "feed=" + (UPDATE_FEED_URL || "github:" + GITHUB_UPDATE.owner + "/" + GITHUB_UPDATE.repo));
   if (UPDATE_FEED_URL) {
     autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL, useMultipleRangeRequest: true });
   } else {
@@ -49,21 +71,44 @@ if (useAutoUpdate) {
   }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  // electron-updater 默认拿 console 当日志器，打包版里每次 checkForUpdates 都会写 stdout；
-  // 关掉它，避免再去碰可能已经断开的管道。
-  autoUpdater.logger = null;
+  // 打包版里 console 可能写到已经断开的管道（EPIPE 会崩主进程），
+  // 所以把 electron-updater 的日志改写到文件：既能排查问题又不会碰 stdout。
+  autoUpdater.logger = {
+    info: (...args) => logUpdate("info", ...args),
+    warn: (...args) => logUpdate("warn", ...args),
+    error: (...args) => logUpdate("error", ...args),
+    debug: (...args) => logUpdate("debug", ...args),
+  };
 
   autoUpdater.on("update-available", (info) => {
     updateAvailableVersion = info.version;
+    logUpdate("info", "update-available", info.version);
     sendToRenderer("update-available", info.version);
   });
-  autoUpdater.on("update-not-available", () => sendToRenderer("update-none"));
-  autoUpdater.on("download-progress", (p) => sendToRenderer("update-progress", Math.round(p.percent)));
+  autoUpdater.on("update-not-available", (info) => {
+    logUpdate("info", "update-not-available", (info && info.version) || "");
+    sendToRenderer("update-none");
+  });
+  autoUpdater.on("download-progress", (p) => {
+    if (p) {
+      logUpdate(
+        "info",
+        "progress",
+        Math.round(p.percent) + "%",
+        Math.round((p.transferred || 0) / 1048576) + "MB/" + Math.round((p.total || 0) / 1048576) + "MB"
+      );
+    }
+    sendToRenderer("update-progress", Math.round(p.percent));
+  });
   autoUpdater.on("update-downloaded", (info) => {
     updateDownloaded = true;
+    logUpdate("info", "update-downloaded", info.version, info.downloadedFile || "");
     sendToRenderer("update-downloaded", info.version);
   });
-  autoUpdater.on("error", (err) => sendToRenderer("update-error", String((err && err.message) || err)));
+  autoUpdater.on("error", (err) => {
+    logUpdate("error", "updater", String((err && err.message) || err));
+    sendToRenderer("update-error", String((err && err.message) || err));
+  });
 
   // 启动后延迟检查更新
   setTimeout(() => {
@@ -652,7 +697,15 @@ ipcMain.handle("check-update", async () => {
 });
 
 ipcMain.on("install-update", () => {
-  if (updateDownloaded && useAutoUpdate) autoUpdater.quitAndInstall();
+  if (!useAutoUpdate) return;
+  if (updateDownloaded) {
+    logUpdate("info", "quit-and-install");
+    autoUpdater.quitAndInstall();
+    return;
+  }
+  // 没下载完就点「安装更新」时，原来什么都不发生；现在明确告诉她
+  logUpdate("warn", "install-update before download finished");
+  sendToRenderer("update-not-ready", updateAvailableVersion || "");
 });
 
 ipcMain.on("quit", () => app.quit());

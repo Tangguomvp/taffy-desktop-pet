@@ -1344,7 +1344,16 @@ const updateChannels = [
   }],
   ["update-downloaded", (v) => showUpdateBubble("新版本 v" + v + " 已下载喵！\n托盘图标右键选'安装更新'重启生效，\n或者下次退出时自动安装。", 8000)],
   ["update-none", () => showUpdateBubble("已经是最新版喵。", 4000)],
-  ["update-error", () => showUpdateBubble("检查更新失败喵，稍后再试？", 5000)],
+  [
+    "update-error",
+    (message) => {
+      // 把真实原因露出来（太长就截断），否则只看到"失败了"没法排查
+      const detail = String(message || "").replace(/\s+/g, " ").trim();
+      const hint = detail ? "：" + detail.slice(0, 80) : "喵，稍后再试？";
+      showUpdateBubble("检查更新失败" + hint, 7000);
+    },
+  ],
+  ["update-not-ready", () => showUpdateBubble("更新还没下载好喵，等进度跑完再点～", 4500)],
 ];
 for (const [ch, fn] of updateChannels) {
   window.pet.onUpdate(ch, fn);
