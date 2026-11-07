@@ -209,6 +209,37 @@ function renderLatestYml(version, sha512, size) {
   ].join(eol);
 }
 
+// 国内直连 GitHub 慢/被重置，所以额外发布两份"镜像源" latest.yml（放在 Gitee 上），
+// 应用里检测到官方源失败会自动切到这些镜像（ghfast.top / gh-proxy.com）。
+const MIRROR_FEEDS = [
+  { id: "ghfast", prefix: "https://ghfast.top/" },
+  { id: "ghproxy", prefix: "https://gh-proxy.com/" },
+];
+
+function renderMirrorYml(prefix, version, sha512, size) {
+  return [
+    "# 镜像源（应用自动回退用）：下载地址前面加了加速前缀，其余与 updates/latest.yml 一致",
+    "version: " + version,
+    "files:",
+    "  - url: " + prefix + "https://github.com/" + GH.owner + "/" + GH.repo + "/releases/download/v" + version + "/" + ASSET(version),
+    "    sha512: " + sha512,
+    "    size: " + size,
+    "path: " + ASSET(version),
+    "sha512: " + sha512,
+    "releaseDate: '" + new Date().toISOString() + "'",
+    "",
+  ].join("\n");
+}
+
+function writeMirrorFeeds(version, sha512, size) {
+  for (const feed of MIRROR_FEEDS) {
+    const dir = path.join(CLONE, "updates", "mirror", feed.id);
+    fs.mkdirSync(dir, { recursive: true });
+    writeText(path.join(dir, "latest.yml"), renderMirrorYml(feed.prefix, version, sha512, size));
+    log("   镜像源：" + path.relative(ROOT, path.join(dir, "latest.yml")));
+  }
+}
+
 function renderReadme(version, previous, publishing) {
   const file = path.join(CLONE, "README.md");
   const text = fs.readFileSync(file, "utf8");
@@ -232,7 +263,10 @@ function renderReadme(version, previous, publishing) {
 function commitAndPush(version, publishing, skipPush, dryRun) {
   step("提交并推送");
   const files = ["package.json", "package-lock.json", "README.md"];
-  if (publishing) files.push("updates/latest.yml");
+  if (publishing) {
+    files.push("updates/latest.yml");
+    for (const feed of MIRROR_FEEDS) files.push("updates/mirror/" + feed.id + "/latest.yml");
+  }
   const existing = files.filter((file) => fs.existsSync(path.join(CLONE, file)));
   if (dryRun) {
     log("   dry-run: git add " + existing.join(" ") + " && commit && push");

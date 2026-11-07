@@ -32,6 +32,41 @@ if (app.isPackaged) {
 // 设置环境变量 TAFFY_UPDATE_URL 可改用自定义 generic 源；TAFFY_UPDATE=0 关闭自动更新。
 const GITHUB_UPDATE = { owner: "Tangguomvp", repo: "taffy-desktop-pet" };
 const UPDATE_FEED_URL = process.env.TAFFY_UPDATE_URL || "";
+
+// 国内直连 GitHub 经常被重置或慢到离谱，所以准备一组镜像源：
+// 第 0 个是官方 GitHub，之后依次是 Gitee 上托管的 latest.yml（里面的下载地址走加速镜像）。
+// 任何一个源检查或下载失败，就自动换下一个重试。
+const UPDATE_MIRRORS = [
+  {
+    id: "ghfast",
+    name: "镜像 ghfast.top",
+    url: "https://gitee.com/tangguotang/eternal-nest-taffy-pet-table/raw/master/updates/mirror/ghfast",
+  },
+  {
+    id: "ghproxy",
+    name: "镜像 gh-proxy.com",
+    url: "https://gitee.com/tangguotang/eternal-nest-taffy-pet-table/raw/master/updates/mirror/ghproxy",
+  },
+];
+let feedIndex = 0;
+const feedCount = () => 1 + UPDATE_MIRRORS.length;
+const feedName = (index) => (index === 0 ? "github" : UPDATE_MIRRORS[index - 1].name);
+
+function applyFeed(index) {
+  feedIndex = Math.max(0, Math.min(feedCount() - 1, index));
+  if (UPDATE_FEED_URL && feedIndex === 0) {
+    autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL, useMultipleRangeRequest: true });
+  } else if (feedIndex === 0) {
+    autoUpdater.setFeedURL({ provider: "github", ...GITHUB_UPDATE });
+  } else {
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: UPDATE_MIRRORS[feedIndex - 1].url,
+      useMultipleRangeRequest: true,
+    });
+  }
+  logUpdate("info", "feed", feedIndex, feedName(feedIndex), UPDATE_FEED_URL && feedIndex === 0 ? UPDATE_FEED_URL : "");
+}
 const useAutoUpdate = app.isPackaged && process.env.TAFFY_UPDATE !== "0";
 let updateDownloaded = false;
 let updateAvailableVersion = "";
@@ -64,11 +99,7 @@ function logUpdate(level, ...args) {
 
 if (useAutoUpdate) {
   logUpdate("info", "startup", "version=" + app.getVersion(), "feed=" + (UPDATE_FEED_URL || "github:" + GITHUB_UPDATE.owner + "/" + GITHUB_UPDATE.repo));
-  if (UPDATE_FEED_URL) {
-    autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL, useMultipleRangeRequest: true });
-  } else {
-    autoUpdater.setFeedURL({ provider: "github", ...GITHUB_UPDATE });
-  }
+  applyFeed(0);
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   // 打包版里 console 可能写到已经断开的管道（EPIPE 会崩主进程），
@@ -106,8 +137,16 @@ if (useAutoUpdate) {
     sendToRenderer("update-downloaded", info.version);
   });
   autoUpdater.on("error", (err) => {
-    logUpdate("error", "updater", String((err && err.message) || err));
-    sendToRenderer("update-error", String((err && err.message) || err));
+    const message = String((err && err.message) || err);
+    logUpdate("error", "updater", feedName(feedIndex), message);
+    // 还有镜像没试过、并且还没下完 → 换个源再试，先别打扰用户
+    if (!updateDownloaded && feedIndex + 1 < feedCount()) {
+      applyFeed(feedIndex + 1);
+      logUpdate("warn", "retry with", feedName(feedIndex), message);
+      setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 800);
+      return;
+    }
+    sendToRenderer("update-error", message);
   });
 
   // 启动后延迟检查更新
@@ -688,12 +727,18 @@ ipcMain.handle("is-top", () => alwaysOnTop);
 
 ipcMain.handle("check-update", async () => {
   if (!useAutoUpdate) return { ok: false, error: "no-feed" };
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return { ok: true, version: result && result.updateInfo && result.updateInfo.version };
-  } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) };
+  let lastError = null;
+  for (let index = feedIndex; index < feedCount(); index += 1) {
+    applyFeed(index);
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { ok: true, version: result && result.updateInfo && result.updateInfo.version, feed: feedName(index) };
+    } catch (err) {
+      lastError = String((err && err.message) || err);
+      logUpdate("warn", "manual check failed on", feedName(index), lastError);
+    }
   }
+  return { ok: false, error: lastError || "all-feeds-failed" };
 });
 
 ipcMain.on("install-update", () => {
