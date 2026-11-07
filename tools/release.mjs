@@ -317,10 +317,12 @@ async function createGithubRelease(version, notes, draft) {
 function uploadAsset(releaseId, file, name) {
   const token = gitCred("github.com");
   log("   上传 " + name + "（" + (fs.statSync(file).size / 1024 / 1024).toFixed(1) + " MB）");
+  // 大文件上传走直连（--noproxy）比走代理快得多；git 推送仍旧走代理，
+  // 所以只给这条 curl 单独设置 no_proxy，改全局会把 git push 也带偏。
   execFileSync(
     "curl.exe",
     [
-      "-sS", "-X", "POST",
+      "-sS", "--noproxy", "*", "-X", "POST",
       "-H", "Authorization: token " + token,
       "-H", "Content-Type: application/octet-stream",
       "--data-binary", "@" + file,
