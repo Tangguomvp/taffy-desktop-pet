@@ -52,9 +52,10 @@
 
 | 版本 | 说明 | 下载 |
 | --- | --- | --- |
-| v1.0.10 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.10.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.10/Taffy-Desktop-Pet-Setup-1.0.10.exe) |
-| v1.0.9 | 上一版 | [Taffy-Desktop-Pet-Setup-1.0.9.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.9/Taffy-Desktop-Pet-Setup-1.0.9.exe) |
+| v1.0.11 | 最新版 | [Taffy-Desktop-Pet-Setup-1.0.11.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.11/Taffy-Desktop-Pet-Setup-1.0.11.exe) |
+| v1.0.10 | 上一版 | [Taffy-Desktop-Pet-Setup-1.0.10.exe](https://github.com/Tangguomvp/taffy-desktop-pet/releases/download/v1.0.10/Taffy-Desktop-Pet-Setup-1.0.10.exe) |
 
+> 已安装 1.0.10 / 更早版本的用户：启动后会自动检测到 v1.0.11 并后台下载，退出时自动安装。
 > 已安装 1.0.9 / 更早版本的用户：启动后会自动检测到 v1.0.10 并后台下载，退出时自动安装。
 > 已安装 1.0.8 / 更早版本的用户：启动后会自动检测到 v1.0.9 并后台下载，退出时自动安装。
 > 已安装 1.0.7 / 更早版本的用户：启动后会自动检测到 v1.0.8 并后台下载，退出时自动安装。
