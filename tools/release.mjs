@@ -473,6 +473,10 @@ async function main() {
   // 不管是不是 dry-run 都先算一遍，保证表格改写逻辑在当前 README 上真的能匹配
   const newReadme = renderReadme(version, previous, publishing);
   const newFeed = publishing ? renderLatestYml(version, sha512, size) : "";
+  if (!opts.dryRun && publishing) {
+    writeMirrorFeeds(version, sha512, size);
+  }
+
   if (opts.dryRun) {
     const readmeLines = newReadme.split(/\r?\n/);
     const tableStart = readmeLines.findIndex((line) => line.startsWith("| 版本 | 说明 | 下载 |"));
