@@ -48,24 +48,115 @@ const UPDATE_MIRRORS = [
     url: "https://gitee.com/tangguotang/eternal-nest-taffy-pet-table/raw/master/updates/mirror/ghproxy",
   },
 ];
-let feedIndex = 0;
-const feedCount = () => 1 + UPDATE_MIRRORS.length;
-const feedName = (index) => (index === 0 ? "github" : UPDATE_MIRRORS[index - 1].name);
+// 候选源：0 = 官方 GitHub；1..n = 镜像（Gitee 上托管的 latest.yml，下载地址带加速前缀）。
+// 启动时用 1MB 范围请求实测各源下载速度，谁快先试谁，失败再顺延；结果缓存 12 小时。
+const FEED_CACHE_KEY = "updateFeedOrder";
+const FEED_CACHE_AT = "updateFeedAt";
+const FEED_CACHE_MS = 12 * 60 * 60 * 1000;
+const MIRROR_BASE = "https://gitee.com/tangguotang/eternal-nest-taffy-pet-table/raw/master/updates";
 
-function applyFeed(index) {
-  feedIndex = Math.max(0, Math.min(feedCount() - 1, index));
-  if (UPDATE_FEED_URL && feedIndex === 0) {
-    autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED_URL, useMultipleRangeRequest: true });
-  } else if (feedIndex === 0) {
+const feedIdByValue = (value) => (value === 0 ? "github" : UPDATE_MIRRORS[value - 1].id);
+const feedNameByValue = (value) => (value === 0 ? "github" : UPDATE_MIRRORS[value - 1].name);
+const feedUrlByValue = (value) => (value === 0 ? UPDATE_FEED_URL || null : UPDATE_MIRRORS[value - 1].url);
+const allFeedValues = () => (UPDATE_FEED_URL ? [0] : [0, ...UPDATE_MIRRORS.map((_, index) => index + 1)]);
+const feedValueById = (id) => {
+  if (id === "github") return 0;
+  const index = UPDATE_MIRRORS.findIndex((item) => item.id === id);
+  return index >= 0 ? index + 1 : -1;
+};
+
+let feedOrder = allFeedValues();
+let feedPos = 0;
+
+function applyFeed(position = feedPos) {
+  feedPos = Math.max(0, Math.min(feedOrder.length - 1, position));
+  const value = feedOrder[feedPos];
+  const url = feedUrlByValue(value);
+  if (value === 0 && !url) {
     autoUpdater.setFeedURL({ provider: "github", ...GITHUB_UPDATE });
   } else {
-    autoUpdater.setFeedURL({
-      provider: "generic",
-      url: UPDATE_MIRRORS[feedIndex - 1].url,
-      useMultipleRangeRequest: true,
-    });
+    autoUpdater.setFeedURL({ provider: "generic", url, useMultipleRangeRequest: true });
   }
-  logUpdate("info", "feed", feedIndex, feedName(feedIndex), UPDATE_FEED_URL && feedIndex === 0 ? UPDATE_FEED_URL : "");
+  logUpdate("info", "feed", feedPos, feedNameByValue(value), url || "github-provider");
+}
+
+// 用 1MB 范围请求粗测一个源的下载速度（B/s），测不到就返回 0
+async function measureFeed(value) {
+  const docUrl = value === 0 ? MIRROR_BASE + "/latest.yml" : feedUrlByValue(value) + "/latest.yml";
+  let fileUrl = "";
+  try {
+    const res = await fetch(docUrl, { signal: AbortSignal.timeout(8000) });
+    const text = await res.text();
+    const match = text.match(/^\s*-\s*url:\s*(\S+)/m) || text.match(/^url:\s*(\S+)/m);
+    fileUrl = match ? match[1] : "";
+  } catch (err) {
+    logUpdate("warn", "probe doc failed", feedNameByValue(value), String((err && err.message) || err));
+  }
+  if (!fileUrl) return 0;
+  const startedAt = Date.now();
+  const limit = 1024 * 1024;
+  let received = 0;
+  try {
+    const res = await fetch(fileUrl, {
+      headers: { Range: "bytes=0-" + (limit - 1) },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (res.ok || res.status === 206) {
+      for await (const chunk of res.body) {
+        received += chunk.length;
+        if (received >= limit || Date.now() - startedAt > 6000) break;
+      }
+    }
+  } catch {}
+  const seconds = Math.max(0.2, (Date.now() - startedAt) / 1000);
+  const bytesPerSecond = received / seconds;
+  logUpdate(
+    "info",
+    "probe",
+    feedNameByValue(value),
+    Math.round(bytesPerSecond / 1024) + "KB/s",
+    received + "B",
+    Math.round(seconds * 1000) + "ms"
+  );
+  return bytesPerSecond;
+}
+
+async function prepareUpdateFeeds() {
+  if (UPDATE_FEED_URL) {
+    applyFeed(0);
+    return;
+  }
+  // 1) 12 小时内测过就直接用缓存
+  try {
+    const cached = loadSettings();
+    const saved = Array.isArray(cached[FEED_CACHE_KEY]) ? cached[FEED_CACHE_KEY] : null;
+    const savedAt = Number(cached[FEED_CACHE_AT] || 0);
+    if (saved && Date.now() - savedAt < FEED_CACHE_MS) {
+      const values = saved.map(feedValueById).filter((value) => value >= 0);
+      if (values.length === feedOrder.length) {
+        feedOrder = values;
+        applyFeed(0);
+        logUpdate("info", "feed order (cache)", feedOrder.map(feedNameByValue).join(" > "));
+        return;
+      }
+    }
+  } catch {}
+  // 2) 实测排序：谁快谁先
+  const values = allFeedValues();
+  const speeds = new Map();
+  const speedOf = (value) => speeds.get(value) || 0;
+  await Promise.all(values.map(async (value) => speeds.set(value, await measureFeed(value))));
+  feedOrder = values.slice().sort((a, b) => (speeds.get(b) || 0) - (speeds.get(a) || 0));
+  // 差距不明显时优先官方源，避免测速抖动导致每次启动都换源
+  const best = speeds.get(feedOrder[0]) || 0;
+  if (speedOf(0) >= best * 0.6 && feedOrder[0] !== 0) {
+    feedOrder = [0, ...feedOrder.filter((value) => value !== 0)];
+  }
+  applyFeed(0);
+  logUpdate("info", "feed order", feedOrder.map(feedNameByValue).join(" > "));
+  try {
+    saveSettings({ [FEED_CACHE_KEY]: feedOrder.map(feedIdByValue), [FEED_CACHE_AT]: Date.now() });
+  } catch {}
 }
 const useAutoUpdate = app.isPackaged && process.env.TAFFY_UPDATE !== "0";
 let updateDownloaded = false;
@@ -98,8 +189,7 @@ function logUpdate(level, ...args) {
 }
 
 if (useAutoUpdate) {
-  logUpdate("info", "startup", "version=" + app.getVersion(), "feed=" + (UPDATE_FEED_URL || "github:" + GITHUB_UPDATE.owner + "/" + GITHUB_UPDATE.repo));
-  applyFeed(0);
+  logUpdate("info", "startup", "version=" + app.getVersion(), "feeds=" + allFeedValues().map(feedNameByValue).join("/"));
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   // 打包版里 console 可能写到已经断开的管道（EPIPE 会崩主进程），
@@ -138,21 +228,25 @@ if (useAutoUpdate) {
   });
   autoUpdater.on("error", (err) => {
     const message = String((err && err.message) || err);
-    logUpdate("error", "updater", feedName(feedIndex), message);
-    // 还有镜像没试过、并且还没下完 → 换个源再试，先别打扰用户
-    if (!updateDownloaded && feedIndex + 1 < feedCount()) {
-      applyFeed(feedIndex + 1);
-      logUpdate("warn", "retry with", feedName(feedIndex), message);
+    logUpdate("error", "updater", feedNameByValue(feedOrder[feedPos]), message);
+    // 还有别的源没试过、并且还没下完 → 换下一个源再试，先别打扰用户
+    if (!updateDownloaded && feedPos + 1 < feedOrder.length) {
+      applyFeed(feedPos + 1);
+      logUpdate("warn", "retry with", feedNameByValue(feedOrder[feedPos]), message);
       setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 800);
       return;
     }
     sendToRenderer("update-error", message);
   });
 
-  // 启动后延迟检查更新
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {});
-  }, 8000);
+  // 先按速度排好源（有缓存就直接用），再延迟检查更新
+  prepareUpdateFeeds()
+    .catch(() => {})
+    .finally(() => {
+      setTimeout(() => {
+        autoUpdater.checkForUpdates().catch(() => {});
+      }, 8000);
+    });
 }
 // 查找 setToolWin.exe：兼容开发模式 / 打包目录 / portable 解压布局
 function findToolWinExe() {
@@ -728,14 +822,18 @@ ipcMain.handle("is-top", () => alwaysOnTop);
 ipcMain.handle("check-update", async () => {
   if (!useAutoUpdate) return { ok: false, error: "no-feed" };
   let lastError = null;
-  for (let index = feedIndex; index < feedCount(); index += 1) {
-    applyFeed(index);
+  for (let position = feedPos; position < feedOrder.length; position += 1) {
+    applyFeed(position);
     try {
       const result = await autoUpdater.checkForUpdates();
-      return { ok: true, version: result && result.updateInfo && result.updateInfo.version, feed: feedName(index) };
+      return {
+        ok: true,
+        version: result && result.updateInfo && result.updateInfo.version,
+        feed: feedNameByValue(feedOrder[position]),
+      };
     } catch (err) {
       lastError = String((err && err.message) || err);
-      logUpdate("warn", "manual check failed on", feedName(index), lastError);
+      logUpdate("warn", "manual check failed on", feedNameByValue(feedOrder[position]), lastError);
     }
   }
   return { ok: false, error: lastError || "all-feeds-failed" };
